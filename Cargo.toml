@@ -1,0 +1,49 @@
+[package]
+name = "cita-bft"
+version = "1.4.2"
+authors = ["Rivtower Technologies <contact@rivtower.com>"]
+license = "Apache-2.0"
+edition = "2018"
+
+[dependencies]
+dotenv = "0.13.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_derive = "1.0"
+bincode = "1.3"
+
+cita-logger = "0.1.1"
+util = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+clap = "2"
+cita-types = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+cita-crypto = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+hashable = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+cita-directories = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+proof = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+time = "0.1.36"
+engine = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+lru-cache = "0.1"
+authority_manage = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+rustc-hex = "1.0"
+min-max-heap = "1.2.2"
+cita_cloud_proto = { path = "../cita_cloud_proto" }
+tonic = "*"
+prost = "*"
+tokio = { version = "*", features = ["full"] }
+protobuf = { version = "*", features = ["with-bytes"] }
+crossbeam = "*"
+anyhow = "*"
+toml = "0.5"
+
+[build-dependencies]
+util = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+
+
+[features]
+default = ["secp256k1", "sha3hash"]
+secp256k1 = ["cita-crypto/secp256k1", "proof/secp256k1","engine/secp256k1"]
+ed25519 = ["cita-crypto/ed25519", "proof/ed25519", "engine/ed25519"]
+sm2 = ["cita-crypto/sm2", "proof/sm2", "engine/sm2"]
+sha3hash = ["hashable/sha3hash",  "proof/sha3hash", "engine/sha3hash"]
+blake2bhash = ["hashable/blake2bhash", "proof/blake2bhash", "engine/blake2bhash"]
+sm3hash = ["hashable/sm3hash", "proof/sm3hash", "engine/sm3hash"]
+timestamp_test=[]
