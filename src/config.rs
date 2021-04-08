@@ -34,7 +34,7 @@ mod tests {
     use super::BftConfig;
 
     #[test]
-    fn test_read_raft_config() {
+    fn test_read_bft_config() {
         {
             let toml_str = r#"
             network_port = 50000

@@ -1,16 +1,10 @@
 use bincode;
+use cita_cloud_proto::common::Hash;
 use cita_cloud_proto::common::ProposalWithProof;
 use cita_cloud_proto::consensus::{
     consensus_service_server::ConsensusService, ConsensusConfiguration,
 };
 use serde::{Deserialize, Serialize};
-
-// #[derive(Serialize, Deserialize, Debug)]
-// enum BftMsgTyp {
-//     Proposal,
-//     Prevote,
-//     Precommit,
-// }
 
 #[derive(Debug)]
 pub enum BftSvrMsg {
@@ -18,11 +12,19 @@ pub enum BftSvrMsg {
     PProof(ProposalWithProof),
 }
 
-pub enum BftToCtlMsg {}
+#[derive(Debug)]
+pub enum BftToCtlMsg {
+    GetProposalReq,
+    CheckProposalReq(Vec<u8>),
+    CommitBlock(ProposalWithProof),
+}
 
-pub enum CtlBackBftMsg {}
-
-pub enum BftToNetMsg {}
+#[derive(Debug)]
+pub enum CtlBackBftMsg {
+    GetProposalRes(Vec<u8>),
+    CheckProposalRes(bool),
+    CommitBlockRes,
+}
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Default)]
 pub struct Vote {

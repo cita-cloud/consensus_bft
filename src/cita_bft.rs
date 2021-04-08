@@ -27,7 +27,7 @@ use cita_logger::{debug, error, info, trace, warn};
 
 use crate::crypto::{pubkey_to_address, CreateKey, Sign, Signature, SIGNATURE_BYTES_LEN};
 use crate::message::{
-    BftSvrMsg, BftToCtlMsg, BftToNetMsg, CompactProposal, CompactSignedProposal, CtlBackBftMsg,
+    BftSvrMsg, BftToCtlMsg, CompactProposal, CompactSignedProposal, CtlBackBftMsg,
     Vote,
 };
 use crate::types::{Address, H256};
@@ -187,7 +187,7 @@ pub struct BftChannls {
     // from bft to controller server's respons
     pub ctl_back_rx: mpsc::UnboundedReceiver<CtlBackBftMsg>,
     // from bft to netowrk quest
-    pub to_net_tx: mpsc::UnboundedSender<BftToNetMsg>,
+    pub to_net_tx: mpsc::UnboundedSender<NetworkMsg>,
     // network back msg
     pub net_back_rx: mpsc::UnboundedReceiver<NetworkMsg>,
 
@@ -329,6 +329,16 @@ impl Bft {
             #[cfg(feature = "timestamp_test")]
             mock_time_modify: TimeOffset::new(SignSymbol::Zero, 0),
         }
+    }
+
+    async fn send_raw_net_msg(&self,rtype: &str,origin: u64,msg: &[u8]) {
+        let net_msg = NetworkMsg {
+            module :"consensus".to_owned(),
+            r#type: rtype.to_string(),
+            origin,
+            msg: msg.to_vec(),
+        };
+        self.bft_channels.to_net_tx.send(net_msg).unwrap();
     }
 
     fn is_only_one_node(&self) -> bool {
@@ -2348,7 +2358,7 @@ impl Bft {
 
     // For clippy
     #[allow(clippy::cognitive_complexity)]
-    pub fn process(&mut self, info: TransType) {
+    pub fn process(&mut self, net_msg: NetworkMsg) {
         // let (key, body) = info;
         // let rtkey = RoutingKey::from(&key);
         // let mut msg = Message::try_from(&body[..]).unwrap();
@@ -3002,18 +3012,44 @@ impl Bft {
 
         loop {
             tokio::select! {
-                x = self.bft_channels.to_bft_rx.recv() => {
+                svrmsg = self.bft_channels.to_bft_rx.recv() => {
+                    if let Some(svrmsg) = svrmsg {
+                        match svrmsg {
+                            BftSvrMsg::Conf(config) => {
 
+                            },
+                            BftSvrMsg::PProof(pproof) => {
+
+                            }
+                        }
+                    }
                 },
 
-                z = self.bft_channels.ctl_back_rx.recv() => {
+                cback = self.bft_channels.ctl_back_rx.recv() => {
+                    if let Some(cback) = cback {
+                        match cback {
+                            CtlBackBftMsg::GetProposalRes(proposal) => {
+
+                            },
+                            CtlBackBftMsg::CheckProposalRes(res) => {
+
+                            }
+                            CtlBackBftMsg::CommitBlockRes => {
+
+                            }
+                        }
+                    }
+                },
+                net_msg = self.bft_channels.net_back_rx.recv() => {
+                    if let Some(net_msg) = net_msg {
+                        //self.process();
+                    }
 
                 },
-                y = self.bft_channels.net_back_rx.recv() => {
-
-                },
-                yy = self.bft_channels.timer_back_rx.recv() => {
-
+                tminfo = self.bft_channels.timer_back_rx.recv() => {
+                    if let Some(tminfo) = tminfo {
+                        self.timeout_process(&tminfo);
+                    }
                 }
             }
         }

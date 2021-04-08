@@ -6,8 +6,8 @@ mod voteset;
 mod votetime;
 mod wal;
 
-use cita_crypto as crypto;
 use cita_types as types;
+use cita_crypto as crypto;
 #[macro_use]
 use cita_logger as logger;
 
@@ -15,8 +15,9 @@ use cita_logger as logger;
 use serde_derive;
 #[macro_use]
 use util;
-use message::{BftSvrMsg, BftToCtlMsg, BftToNetMsg, CtlBackBftMsg};
+use message::{BftSvrMsg, BftToCtlMsg, CtlBackBftMsg};
 
+use anyhow::Result;
 use logger::{debug, error, info, trace, warn};
 use tokio::sync::mpsc;
 
@@ -32,10 +33,11 @@ use tokio::sync::mpsc;
 use crate::cita_bft::{Bft, BftChannls, BftTurn};
 use crate::params::{BftParams, PrivateKey};
 use crate::votetime::WaitTimer;
+use clap::Clap;
+use git_version::git_version;
 use util::set_panic_handler;
 
-use cita_cloud_proto::common::ProposalWithProof;
-use cita_cloud_proto::common::SimpleResponse;
+use cita_cloud_proto::common::{Empty, Hash, ProposalWithProof, SimpleResponse};
 use cita_cloud_proto::consensus::consensus_service_server::ConsensusServiceServer;
 use cita_cloud_proto::consensus::{
     consensus_service_server::ConsensusService, ConsensusConfiguration,
@@ -44,8 +46,7 @@ use cita_cloud_proto::controller::consensus2_controller_service_client::Consensu
 use cita_cloud_proto::network::network_msg_handler_service_server::NetworkMsgHandlerService;
 use cita_cloud_proto::network::network_msg_handler_service_server::NetworkMsgHandlerServiceServer;
 use cita_cloud_proto::network::network_service_client::NetworkServiceClient;
-use cita_cloud_proto::network::NetworkMsg;
-use cita_cloud_proto::network::RegisterInfo;
+use cita_cloud_proto::network::{NetworkMsg, RegisterInfo};
 use tonic::transport::channel::Channel;
 use tonic::{transport::Server, Request};
 
@@ -77,7 +78,7 @@ impl ConsensusService for BftSvr {
     async fn check_block(
         &self,
         request: tonic::Request<ProposalWithProof>,
-    ) -> Result<tonic::Response<SimpleResponse>, tonic::Status> {
+    ) -> std::result::Result<tonic::Response<SimpleResponse>, tonic::Status> {
         let pp = request.into_inner();
         self.to_bft_tx.send(BftSvrMsg::PProof(pp)).unwrap();
         let reply = SimpleResponse { is_success: true };
@@ -105,15 +106,13 @@ impl BftToCtl {
         }
     }
 
-    // Connect to the controller. Retry on failure.
-    async fn run(mut b2c: BftToCtl) {
+    async fn reconnect(ctr_port: u16) -> ControllerClient {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
-        let controller_addr = format!("http://127.0.0.1:{}", b2c.ctr_port);
+        let ctl_addr = format!("http://127.0.0.1:{}", ctr_port);
         info!("connecting to controller...");
-
         let client = loop {
             interval.tick().await;
-            match ControllerClient::connect(controller_addr.clone()).await {
+            match ControllerClient::connect(ctl_addr.clone()).await {
                 Ok(client) => break client,
                 Err(e) => {
                     debug!("connect to controller failed: `{}`", e);
@@ -121,22 +120,65 @@ impl BftToCtl {
             }
             debug!("Retrying to connect controller");
         };
+        client
+    }
 
-        while let Some(to_msg) = b2c.to_ctl_rx.recv().await {}
+    // Connect to the controller. Retry on failure.
+    async fn run(mut b2c: BftToCtl) {
+        let mut client = Self::reconnect(b2c.ctr_port).await;
+        while let Some(to_msg) = b2c.to_ctl_rx.recv().await {
+            match to_msg {
+                BftToCtlMsg::GetProposalReq => {
+                    let request = tonic::Request::new(Empty {});
+                    let response = client
+                        .get_proposal(request)
+                        .await
+                        .map(|resp| resp.into_inner().hash);
+                    //.map_err(|e| e.into());
+                    if let Ok(res) = response {
+                        let msg = CtlBackBftMsg::GetProposalRes(res);
+                        b2c.back_bft_tx.send(msg).unwrap();
+                    }
+                }
+
+                BftToCtlMsg::CheckProposalReq(hash) => {
+                    let request = tonic::Request::new(Hash { hash });
+                    let response = client
+                        .check_proposal(request)
+                        .await
+                        .map(|resp| resp.into_inner().is_success);
+                    //.map_err(|e| e.into());
+                    if let Ok(res) = response {
+                        let msg = CtlBackBftMsg::CheckProposalRes(res);
+                        b2c.back_bft_tx.send(msg).unwrap();
+                    }
+                }
+                BftToCtlMsg::CommitBlock(pproff) => {
+                    let request = tonic::Request::new(pproff);
+                    let response = client.commit_block(request).await.map(|_resp| ());
+                    //.map_err(|e| e.into());
+                    if let Ok(_) = response {
+                        let msg = CtlBackBftMsg::CommitBlockRes;
+                        b2c.back_bft_tx.send(msg).unwrap();
+                    }
+                }
+            }
+        }
+        error!("bft to controller channel closed");
     }
 }
 
 struct BftToNet {
     net_port: u16,
     self_port: String,
-    to_net_rx: mpsc::UnboundedReceiver<BftToNetMsg>,
+    to_net_rx: mpsc::UnboundedReceiver<NetworkMsg>,
 }
 
 impl BftToNet {
     pub fn new(
         net_port: u16,
         self_port: String,
-        to_net_rx: mpsc::UnboundedReceiver<BftToNetMsg>,
+        to_net_rx: mpsc::UnboundedReceiver<NetworkMsg>,
     ) -> Self {
         BftToNet {
             net_port,
@@ -145,11 +187,11 @@ impl BftToNet {
         }
     }
 
-    async fn run(mut b2n: BftToNet) {
+    async fn reconnect(net_port: u16) -> NetworkClient {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
-        let net_addr = format!("http://127.0.0.1:{}", b2n.net_port);
+        let net_addr = format!("http://127.0.0.1:{}", net_port);
         info!("connecting to network...");
-        let mut client = loop {
+        let client = loop {
             interval.tick().await;
             match NetworkClient::connect(net_addr.clone()).await {
                 Ok(client) => break client,
@@ -159,25 +201,45 @@ impl BftToNet {
             }
             debug!("Retrying to connect network");
         };
-
-        let request = Request::new(RegisterInfo {
-            module_name: "consensus".to_owned(),
-            hostname: "127.0.0.1".to_owned(),
-            port: b2n.self_port,
-        });
-        // tobe fix
-        let response = client.register_network_msg_handler(request).await.unwrap();
-        if response.into_inner().is_success {}
-        while let Some(msg) = b2n.to_net_rx.recv().await {}
+        client
     }
-    // Connect to the network. Retry on failure.
 
-    // pub async fn register_network_msg_handler(&self) -> Result<bool, Box<dyn std::error::Error>> {
-    //     let network_addr = format!("http://127.0.0.1:{}", self.net_port);
-    //     let mut client = connect_network(network_addr);
-    // }
+    async fn run(mut b2n: BftToNet) {
+        
+        let mut client = Self::reconnect(b2n.net_port).await;
+
+        loop {
+            let request = Request::new(RegisterInfo {
+                module_name: "consensus".to_owned(),
+                hostname: "127.0.0.1".to_owned(),
+                port: b2n.self_port.clone(),
+            });
+
+            let response = client.register_network_msg_handler(request).await.unwrap();
+            if response.into_inner().is_success {
+                break;
+            }
+        }
+
+        
+        while let Some(msg) = b2n.to_net_rx.recv().await {
+            let origin = msg.origin;
+            let request = tonic::Request::new(msg);
+            if origin == 0 {
+                let resp = client.broadcast(request).await;
+                if let Err(e) = resp {
+                    info!("net client broadcast error {:?}", e);
+                }
+            } else {
+                let resp = client.send_msg(request).await;
+                if let Err(e) = resp {
+                    info!("net client send_msg error {:?}", e);
+                }
+            }
+        }
+        error!("bft to net channel closed");
+    }
 }
-
 struct NetToBft {
     to_bft_tx: mpsc::UnboundedSender<NetworkMsg>,
 }
@@ -205,23 +267,60 @@ impl NetworkMsgHandlerService for NetToBft {
     }
 }
 
+const GIT_VERSION: &str = git_version!(
+    args = ["--tags", "--always", "--dirty=-modified"],
+    fallback = "unknown"
+);
+const GIT_HOMEPAGE: &str = "https://github.com/cita-cloud/consensus_bft";
+
+/// This doc string acts as a help message when the user runs '--help'
+/// as do all doc strings on fields
+#[derive(Clap)]
+#[clap(version = "0.1.0", author = "Rivtower Technologies.")]
+struct Opts {
+    #[clap(subcommand)]
+    subcmd: SubCommand,
+}
+
+#[derive(Clap)]
+enum SubCommand {
+    /// print information from git
+    #[clap(name = "git")]
+    GitInfo,
+    /// run this service
+    #[clap(name = "run")]
+    Run(RunOpts),
+}
+
+/// A subcommand for run
+#[derive(Clap)]
+struct RunOpts {
+    /// Sets grpc port of this service.
+    #[clap(short = 'p', long = "port", default_value = "50003")]
+    grpc_port: String,
+}
+
 #[tokio::main]
-async fn run() {
+async fn run(opts: RunOpts) {
     ::std::env::set_var("RUST_BACKTRACE", "full");
+
+    let buffer = std::fs::read_to_string("consensus-config.toml")
+        .unwrap_or_else(|err| panic!("Error while loading config: [{}]", err));
+    let config = config::BftConfig::new(&buffer);
 
     let (bft_tx, bft_rx) = mpsc::unbounded_channel();
     let bft_svr = BftSvr::new(bft_tx);
 
     let (to_ctl_tx, to_ctl_rx) = mpsc::unbounded_channel();
     let (ctl_back_tx, ctl_back_rx) = mpsc::unbounded_channel();
-    let b2c = BftToCtl::new(8001, to_ctl_rx, ctl_back_tx);
+    let b2c = BftToCtl::new(config.controller_port, to_ctl_rx, ctl_back_tx);
 
     tokio::spawn(async move {
         BftToCtl::run(b2c).await;
     });
 
     let (to_net_tx, to_net_rx) = mpsc::unbounded_channel();
-    let b2n = BftToNet::new(8003, 8004.to_string(), to_net_rx);
+    let b2n = BftToNet::new(config.network_port, opts.grpc_port.clone(), to_net_rx);
     tokio::spawn(async move {
         BftToNet::run(b2n).await;
     });
@@ -247,7 +346,7 @@ async fn run() {
         timer_back_rx,
     };
 
-    let sk = PrivateKey::new("0xaa");
+    let sk = PrivateKey::new(&config.sk);
     let bft_params = BftParams::new(&sk);
     let mut bft = Bft::new(bft_params, bc);
 
@@ -255,7 +354,7 @@ async fn run() {
         bft.start().await;
     });
 
-    let addr_str = format!("127.0.0.1:{}", 8000);
+    let addr_str = format!("127.0.0.1:{}", opts.grpc_port);
     let addr = addr_str.parse().unwrap();
     Server::builder()
         .add_service(ConsensusServiceServer::new(bft_svr))
@@ -265,5 +364,17 @@ async fn run() {
 }
 
 fn main() {
-    run();
+    ::std::env::set_var("RUST_BACKTRACE", "full");
+    let opts: Opts = Opts::parse();
+    // You can handle information about subcommands by requesting their matches by name
+    // (as below), requesting just the name used, or both at the same time
+    match opts.subcmd {
+        SubCommand::GitInfo => {
+            println!("git version: {}", GIT_VERSION);
+            println!("homepage: {}", GIT_HOMEPAGE);
+        }
+        SubCommand::Run(opts) => {
+            run(opts);
+        }
+    }
 }

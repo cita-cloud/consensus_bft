@@ -13,8 +13,9 @@ bincode = "1.3"
 
 cita-logger = "0.1.1"
 util = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
-clap = "2"
 cita-types = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+
+ethereum-types = "0.11.0"
 cita-crypto = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
 hashable = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
 cita-directories = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
@@ -33,6 +34,8 @@ protobuf = { version = "*", features = ["with-bytes"] }
 crossbeam = "*"
 anyhow = "*"
 toml = "0.5"
+clap = "3.0.0-beta.2"
+git-version = "*"
 
 [build-dependencies]
 util = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
