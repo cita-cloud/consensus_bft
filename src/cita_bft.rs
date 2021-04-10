@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::convert::Into;
-
+use std::convert::{From,Into};
 use authority_manage::AuthorityManage;
 use bincode::{deserialize, serialize};
+use clap::lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
 use crate::params::BftParams;
@@ -41,6 +41,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 use std::{cell::RefCell, fs, process::exit};
 use tokio::sync::mpsc;
+// #[macro_use]
+// use lazy_static;
 
 const INIT_HEIGHT: usize = 1;
 const INIT_ROUND: usize = 0;
@@ -54,6 +56,30 @@ const TIMEOUT_LOW_ROUND_FEED_MULTIPLE: u32 = 23;
 const DEFAULT_TIME_INTERVAL: u64 = 3000;
 const TIMESTAMP_JUDGE_BLOCK_INTERVAL: usize = 200;
 const TIMESTAMP_DIFF_MAX_INTERVAL: u64 = 3000;
+
+
+enum VoteMsgType {
+    Noop,
+    Proposal,
+    Prevote,
+    Precommit,
+    LeaderPrevote,
+    LeaderPrecommit,
+}
+
+impl From<&str> for VoteMsgType {
+    fn from(s: &str) -> Self {
+        match s {
+            "proposal" => Self::Proposal,  
+            "prevote" => Self::Prevote,  
+            "precommit" => Self::Precommit,  
+            "lprevote" => Self::LeaderPrevote,  
+            "lprecommit" => Self::LeaderPrecommit,
+            _=> Self::Noop,
+        }
+    }
+}
+
 
 pub type TransType = (String, Vec<u8>);
 pub type PubType = (String, Vec<u8>);
@@ -195,7 +221,6 @@ pub struct BftChannls {
 
     pub timer_back_rx: mpsc::UnboundedReceiver<TimeoutInfo>,
 }
-
 pub struct Bft {
     // pub_sender: Sender<PubType>,
     // timer_seter: Sender<TimeoutInfo>,
@@ -1774,7 +1799,7 @@ impl Bft {
 
     fn uniform_handle_proposal(
         &mut self,
-        body: &[u8],
+        msg: &NetworkMsg,
         wal_flag: bool,
     ) -> Result<(usize, usize), EngineError> {
         trace!("Handle proposal {} begin wal_flag: {}", self, wal_flag);
@@ -2052,19 +2077,15 @@ impl Bft {
         let mut save_flag = true;
         let blk;
 
-        if let Some(_lock_round) = self.lock_round {
-            // if self.proposal.is_none() {
-            //     warn!(" Proposal is cleaned,why happend {} {} ", self, lock_round);
-            //     if let Some(proposal) = self.proposals.get_proposal(self.height, lock_round) {
-            //         let compact_block = CompactBlock::try_from(&proposal.block).unwrap();
-            //         self.set_proposal_and_block(
-            //             Some(compact_block.crypt_hash()),
-            //             Some(compact_block),
-            //         );
-            //     } else {
-            //         return false;
-            //     }
-            // }
+        if let Some(lock_round) = self.lock_round {
+            if self.proposal.is_none() {
+                warn!(" Proposal is cleaned,why happend {} {} ", self, lock_round);
+                if let Some(proposal) = self.proposals.get_proposal(self.height, lock_round) {
+                    self.proposal = Some(proposal.phash);
+                } else {
+                    return false;
+                }
+            }
 
             let lock_block = self.locked_block.clone().unwrap();
             let lock_block_hash = lock_block.crypt_hash();
@@ -2099,7 +2120,8 @@ impl Bft {
         }
 
         let proposal = Proposal {
-            block: blk.clone(),
+            //block: blk.clone(),
+            phash: H256::default(),
             lock_round: self.lock_round,
             lock_votes: self.locked_vote.clone(),
         };
@@ -2363,6 +2385,18 @@ impl Bft {
         // let rtkey = RoutingKey::from(&key);
         // let mut msg = Message::try_from(&body[..]).unwrap();
         // let from_broadcast = rtkey.is_sub_module(SubModules::Net);
+
+        match net_msg.r#type.as_str().into() {
+            VoteMsgType::Proposal => {
+            },
+            VoteMsgType::Prevote => {
+            },
+            VoteMsgType::Precommit => {
+            },
+            VoteMsgType::LeaderPrevote=>{},
+            VoteMsgType::LeaderPrecommit =>{},
+            _ => {},
+        }
         if true {
             //if from_broadcast && self.is_consensus_node {
             // match rtkey {
@@ -2857,15 +2891,15 @@ impl Bft {
             match log_type {
                 LogType::Skip => {}
                 LogType::Propose => {
-                    let res = self.uniform_handle_proposal(&vec_out[..], false);
-                    if let Ok((_h, _r)) = res {
-                        // let proposal = self.proposals.get_proposal(h, r).unwrap();
-                        // let compact_block = CompactBlock::try_from(&proposal.block).unwrap();
-                        // self.set_proposal_and_block(
-                        //     Some(compact_block.crypt_hash()),
-                        //     Some(compact_block),
-                        // );
-                    }
+                    // let res = self.uniform_handle_proposal(&vec_out[..], false);
+                    // if let Ok((_h, _r)) = res {
+                    //     // let proposal = self.proposals.get_proposal(h, r).unwrap();
+                    //     // let compact_block = CompactBlock::try_from(&proposal.block).unwrap();
+                    //     // self.set_proposal_and_block(
+                    //     //     Some(compact_block.crypt_hash()),
+                    //     //     Some(compact_block),
+                    //     // );
+                    // }
                 }
                 LogType::Vote => {
                     let res = self.decode_basic_message(&vec_out[..]);
@@ -3002,6 +3036,10 @@ impl Bft {
         //     .unwrap();
     }
 
+    fn check_proposal_proof(&self) ->bool {
+        true
+    }
+
     pub async fn start(&mut self) {
         self.load_wal_log();
         // TODO : broadcast some message, based on current state
@@ -3016,10 +3054,20 @@ impl Bft {
                     if let Some(svrmsg) = svrmsg {
                         match svrmsg {
                             BftSvrMsg::Conf(config) => {
-
+                                self.params.timer.set_total_duration(config.block_interval as u64);
+                                let mut validators = Vec::new();
+                                for v in config.validators {
+                                    validators.push(Address::from(&v[..]));
+                                }
+                                self.auth_manage.receive_authorities_list(
+                                                88888888,
+                                                &validators,
+                                                &validators,
+                                            );
                             },
-                            BftSvrMsg::PProof(pproof) => {
-
+                            BftSvrMsg::PProof(_pproof,tx) => {
+                                let res = self.check_proposal_proof();
+                                tx.send(res).unwrap();
                             }
                         }
                     }
@@ -3055,17 +3103,10 @@ impl Bft {
         }
     }
 
-    fn send_txlist_request(&self, height: usize) {
-        // let mut req = auth::GetTxList::new();
-        // req.set_height(height as u64);
-        // let msg: Message = req.into();
-        // self.pub_sender
-        //     .send((
-        //         routing_key!(Consensus >> GetTxList).into(),
-        //         msg.try_into().unwrap(),
-        //     ))
-        //     .unwrap();
+    fn send_txlist_request(&self, _height: usize) {
 
-        trace!("Send txlist request {} ", height);
+        self.bft_channels.to_ctl_tx.send(BftToCtlMsg::GetProposalReq);
+        
+        trace!("Send txlist request {} ", _height);
     }
 }

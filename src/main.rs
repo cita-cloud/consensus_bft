@@ -80,8 +80,10 @@ impl ConsensusService for BftSvr {
         request: tonic::Request<ProposalWithProof>,
     ) -> std::result::Result<tonic::Response<SimpleResponse>, tonic::Status> {
         let pp = request.into_inner();
-        self.to_bft_tx.send(BftSvrMsg::PProof(pp)).unwrap();
-        let reply = SimpleResponse { is_success: true };
+        let (tx,rx) = tokio::sync::oneshot::channel();
+        self.to_bft_tx.send(BftSvrMsg::PProof(pp,tx)).unwrap();
+        let res = rx.await.unwrap();
+        let reply = SimpleResponse { is_success: res };
         Ok(tonic::Response::new(reply))
     }
 }

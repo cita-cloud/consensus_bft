@@ -5,11 +5,12 @@ use cita_cloud_proto::consensus::{
     consensus_service_server::ConsensusService, ConsensusConfiguration,
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot;
 
 #[derive(Debug)]
 pub enum BftSvrMsg {
     Conf(ConsensusConfiguration),
-    PProof(ProposalWithProof),
+    PProof(ProposalWithProof,oneshot::Sender<bool>),
 }
 
 #[derive(Debug)]

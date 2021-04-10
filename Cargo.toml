@@ -36,6 +36,7 @@ anyhow = "*"
 toml = "0.5"
 clap = "3.0.0-beta.2"
 git-version = "*"
+#lazy_static = "1.4"
 
 [build-dependencies]
 util = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }

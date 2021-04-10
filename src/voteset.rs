@@ -262,14 +262,14 @@ impl ProposalRoundCollector {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Proposal {
-    pub block: Vec<u8>,
+    pub phash: H256,
     pub lock_round: Option<usize>,
     pub lock_votes: Option<VoteSet>,
 }
 
 impl Proposal {
     pub fn is_default(&self) -> bool {
-        self.block.is_empty()
+        self.phash.is_zero()
     }
 
     pub fn check(&self, h: usize, authorities: &[Address]) -> bool {
@@ -286,19 +286,7 @@ impl Proposal {
 
             match ret {
                 Ok(Some(p)) => {
-                    // if let Ok(block) = CompactBlock::try_from(&self.block) {
-                    //     warn!(
-                    //         "***** proposal  CompactBlockchecked hash {:?} ",
-                    //         block.crypt_hash()
-                    //     );
-                    //     block.crypt_hash() == p
-                    // } else if let Ok(block) = Block::try_from(&self.block) {
-                    //     warn!("***** proposal  oldblock hash {:?} ", block.crypt_hash());
-                    //     block.crypt_hash() == p
-                    // } else {
-                    //     false
-                    // }
-                    false
+                    p == self.phash
                 }
                 _ => false,
             }
