@@ -26,7 +26,7 @@ use std::collections::BTreeMap;
 // height -> round collector
 #[derive(Debug)]
 pub struct VoteCollector {
-    pub votes: LruCache<usize, RoundCollector>,
+    pub votes: LruCache<u64, RoundCollector>,
 }
 
 impl VoteCollector {
@@ -38,8 +38,8 @@ impl VoteCollector {
 
     pub fn add(
         &mut self,
-        height: usize,
-        round: usize,
+        height: u64,
+        round: u64,
         step: Step,
         sender: Address,
         vote: &VoteMessage,
@@ -57,7 +57,7 @@ impl VoteCollector {
         }
     }
 
-    pub fn get_voteset(&mut self, height: usize, round: usize, step: Step) -> Option<VoteSet> {
+    pub fn get_voteset(&mut self, height: u64, round: u64, step: Step) -> Option<VoteSet> {
         self.votes
             .get_mut(&height)
             .and_then(|rc| rc.get_voteset(round, step))
@@ -67,7 +67,7 @@ impl VoteCollector {
 //round -> step collector
 #[derive(Debug)]
 pub struct RoundCollector {
-    pub round_votes: LruCache<usize, StepCollector>,
+    pub round_votes: LruCache<u64, StepCollector>,
 }
 
 impl RoundCollector {
@@ -77,7 +77,7 @@ impl RoundCollector {
         }
     }
 
-    pub fn add(&mut self, round: usize, step: Step, sender: Address, vote: &VoteMessage) -> bool {
+    pub fn add(&mut self, round: u64, step: Step, sender: Address, vote: &VoteMessage) -> bool {
         if self.round_votes.contains_key(&round) {
             self.round_votes
                 .get_mut(&round)
@@ -91,7 +91,7 @@ impl RoundCollector {
         }
     }
 
-    pub fn get_voteset(&mut self, round: usize, step: Step) -> Option<VoteSet> {
+    pub fn get_voteset(&mut self, round: u64, step: Step) -> Option<VoteSet> {
         self.round_votes
             .get_mut(&round)
             .and_then(|sc| sc.get_voteset(step))
@@ -127,8 +127,8 @@ impl StepCollector {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct VoteSet {
     pub votes_by_sender: BTreeMap<Address, VoteMessage>,
-    pub votes_by_proposal: BTreeMap<H256, usize>,
-    pub count: usize,
+    pub votes_by_proposal: BTreeMap<H256, u64>,
+    pub count: u64,
 }
 
 impl VoteSet {
@@ -157,12 +157,12 @@ impl VoteSet {
 
     pub fn check(
         &self,
-        h: usize,
-        r: usize,
+        h: u64,
+        r: u64,
         step: Step,
         authorities: &[Address],
     ) -> Result<Option<H256>, &str> {
-        let mut votes_by_proposal: BTreeMap<H256, usize> = BTreeMap::new();
+        let mut votes_by_proposal: BTreeMap<H256, u64> = BTreeMap::new();
         trace!(
             "check votes_by_sender {:?} authorities{:?}",
             self.votes_by_sender,
@@ -183,7 +183,7 @@ impl VoteSet {
         }
         trace!(" check votes get {:?}", votes_by_proposal);
         for (hash, count) in &votes_by_proposal {
-            if *count * 3 > authorities.len() * 2 {
+            if (*count * 3) as usize> authorities.len() * 2 {
                 if hash.is_zero() {
                     return Ok(None);
                 } else {
@@ -203,7 +203,7 @@ pub struct VoteMessage {
 
 #[derive(Debug)]
 pub struct ProposalCollector {
-    pub proposals: LruCache<usize, ProposalRoundCollector>,
+    pub proposals: LruCache<u64, ProposalRoundCollector>,
 }
 
 impl ProposalCollector {
@@ -213,7 +213,7 @@ impl ProposalCollector {
         }
     }
 
-    pub fn add(&mut self, height: usize, round: usize, proposal: Proposal) -> bool {
+    pub fn add(&mut self, height: u64, round: u64, proposal: Proposal) -> bool {
         if self.proposals.contains_key(&height) {
             self.proposals
                 .get_mut(&height)
@@ -227,7 +227,7 @@ impl ProposalCollector {
         }
     }
 
-    pub fn get_proposal(&mut self, height: usize, round: usize) -> Option<Proposal> {
+    pub fn get_proposal(&mut self, height: u64, round: u64) -> Option<Proposal> {
         self.proposals
             .get_mut(&height)
             .and_then(|prc| prc.get_proposal(round))
@@ -236,7 +236,7 @@ impl ProposalCollector {
 
 #[derive(Debug)]
 pub struct ProposalRoundCollector {
-    pub round_proposals: LruCache<usize, Proposal>,
+    pub round_proposals: LruCache<u64, Proposal>,
 }
 
 impl ProposalRoundCollector {
@@ -246,7 +246,7 @@ impl ProposalRoundCollector {
         }
     }
 
-    pub fn add(&mut self, round: usize, proposal: Proposal) -> bool {
+    pub fn add(&mut self, round: u64, proposal: Proposal) -> bool {
         if self.round_proposals.contains_key(&round) {
             false
         } else {
@@ -255,7 +255,7 @@ impl ProposalRoundCollector {
         }
     }
 
-    pub fn get_proposal(&mut self, round: usize) -> Option<Proposal> {
+    pub fn get_proposal(&mut self, round: u64) -> Option<Proposal> {
         self.round_proposals.get_mut(&round).cloned()
     }
 }
@@ -263,16 +263,23 @@ impl ProposalRoundCollector {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Proposal {
     pub phash: H256,
-    pub lock_round: Option<usize>,
+    pub lock_round: Option<u64>,
     pub lock_votes: Option<VoteSet>,
 }
 
 impl Proposal {
+    pub fn new(phash : H256) -> Self {
+        Self {
+            phash,
+            lock_round : None,
+            lock_votes :None,
+        }
+    }
     pub fn is_default(&self) -> bool {
         self.phash.is_zero()
     }
 
-    pub fn check(&self, h: usize, authorities: &[Address]) -> bool {
+    pub fn check(&self, h: u64, authorities: &[Address]) -> bool {
         if self.lock_round.is_none() && self.lock_votes.is_none() {
             true
         } else {

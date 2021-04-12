@@ -22,8 +22,8 @@ use tokio::sync::mpsc::{UnboundedReceiver as Receiver, UnboundedSender as Sender
 #[derive(Clone, Eq, PartialEq)]
 pub struct TimeoutInfo {
     pub timeval: Instant,
-    pub height: usize,
-    pub round: usize,
+    pub height: u64,
+    pub round: u64,
     pub step: Step,
 }
 

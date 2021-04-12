@@ -206,10 +206,8 @@ impl BftToNet {
         client
     }
 
-    async fn run(mut b2n: BftToNet) {
-        
+    async fn run(mut b2n: BftToNet) { 
         let mut client = Self::reconnect(b2n.net_port).await;
-
         loop {
             let request = Request::new(RegisterInfo {
                 module_name: "consensus".to_owned(),

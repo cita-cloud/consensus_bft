@@ -19,7 +19,7 @@ use std::io::{self, Read, Seek, Write};
 use std::mem::transmute;
 use std::str;
 
-const DELETE_FILE_INTERVAL: usize = 8;
+const DELETE_FILE_INTERVAL: u64 = 8;
 
 #[derive(Debug, Clone, Copy)]
 pub enum LogType {
@@ -55,21 +55,21 @@ impl From<u8> for LogType {
 }
 
 pub struct Wal {
-    height_fs: BTreeMap<usize, File>,
+    height_fs: BTreeMap<u64, File>,
     dir: String,
-    current_height: usize,
+    current_height: u64,
     ifile: File,
 }
 
 impl Wal {
-    fn delete_old_file(dir: &str, current_height: usize) -> io::Result<()> {
+    fn delete_old_file(dir: &str, current_height: u64) -> io::Result<()> {
         for entry in read_dir(dir)? {
             let entry = entry?;
             let fpath = entry.path();
             if let Some(fname) = fpath.file_name() {
                 let strs: Vec<&str> = fname.to_str().unwrap().split('.').collect();
                 if !strs.is_empty() {
-                    let num = strs[0].parse::<usize>().unwrap_or(current_height);
+                    let num = strs[0].parse::<u64>().unwrap_or(current_height);
                     if num + DELETE_FILE_INTERVAL < current_height {
                         ::std::fs::remove_file(fpath)?;
                     }
@@ -96,13 +96,13 @@ impl Wal {
         let mut string_buf: String = String::new();
         let res_fsize = ifs.read_to_string(&mut string_buf)?;
         let num_str = string_buf.trim();
-        let cur_height: usize;
+        let cur_height: u64;
         let last_file_path: String;
         if res_fsize == 0 {
             last_file_path = dir.to_string() + "/1.log";
             cur_height = 1;
         } else {
-            let hi_res = num_str.parse::<usize>();
+            let hi_res = num_str.parse::<u64>();
             if let Ok(hi) = hi_res {
                 cur_height = hi;
                 last_file_path = dir.to_string() + "/" + cur_height.to_string().as_str() + ".log"
@@ -133,26 +133,26 @@ impl Wal {
         })
     }
 
-    fn get_file_path(dir: &str, height: usize) -> String {
+    fn get_file_path(dir: &str, height: u64) -> String {
         let mut name = height.to_string();
         name += ".log";
         let pathname = dir.to_string() + "/";
         pathname + &*name
     }
 
-    fn set_index_file(&mut self, height: usize) -> io::Result<usize> {
+    fn set_index_file(&mut self, height: u64) -> io::Result<u64> {
         self.current_height = height;
         self.ifile.seek(io::SeekFrom::Start(0))?;
         let hstr = height.to_string();
         let content = hstr.as_bytes();
-        let len = content.len();
-        self.ifile.set_len(len as u64)?;
+        let len = content.len() as u64;
+        self.ifile.set_len(len)?;
         self.ifile.write_all(&content)?;
         self.ifile.sync_data()?;
         Ok(len)
     }
 
-    pub fn set_height(&mut self, height: usize) -> io::Result<usize> {
+    pub fn set_height(&mut self, height: u64) -> io::Result<u64> {
         let len = self.set_index_file(height)?;
         if let Entry::Vacant(entry) = self.height_fs.entry(height) {
             let filename = Wal::get_file_path(&self.dir, height);
@@ -175,7 +175,7 @@ impl Wal {
         Ok(len)
     }
 
-    pub fn save(&mut self, height: usize, log_type: LogType, msg: &[u8]) -> io::Result<usize> {
+    pub fn save(&mut self, height: u64, log_type: LogType, msg: &[u8]) -> io::Result<u64> {
         let mtype = log_type as u8;
         let mlen = msg.len() as u32;
         if mlen == 0 {
@@ -209,10 +209,10 @@ impl Wal {
                 height, self.current_height
             );
         }
-        Ok(hlen)
+        Ok(hlen as u64)
     }
 
-    pub fn get_cur_height(&self) -> usize {
+    pub fn get_cur_height(&self) -> u64 {
         self.current_height
     }
 

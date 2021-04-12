@@ -44,17 +44,17 @@ use tokio::sync::mpsc;
 // #[macro_use]
 // use lazy_static;
 
-const INIT_HEIGHT: usize = 1;
-const INIT_ROUND: usize = 0;
+const INIT_HEIGHT: u64 = 1;
+const INIT_ROUND: u64 = 0;
 
-const MAX_PROPOSAL_TIME_COEF: usize = 18;
+const MAX_PROPOSAL_TIME_COEF: u64 = 18;
 
 const TIMEOUT_RETRANSE_MULTIPLE: u32 = 15;
 const TIMEOUT_LOW_ROUND_FEED_MULTIPLE: u32 = 23;
 
 //const BLOCK_TIMESTAMP_INTERVAL: u64 = 100;
 const DEFAULT_TIME_INTERVAL: u64 = 3000;
-const TIMESTAMP_JUDGE_BLOCK_INTERVAL: usize = 200;
+const TIMESTAMP_JUDGE_BLOCK_INTERVAL: u64 = 200;
 const TIMESTAMP_DIFF_MAX_INTERVAL: u64 = 3000;
 
 
@@ -80,10 +80,23 @@ impl From<&str> for VoteMsgType {
     }
 }
 
+impl Into<&str> for VoteMsgType {
+    fn into(self) -> &'static str {
+        match self {
+             Self::Proposal =>"proposal",  
+             Self::Prevote  =>"prevote",  
+             Self::Precommit => "precommit",  
+             Self::LeaderPrevote =>"lprevote",  
+            Self::LeaderPrecommit => "lprecommit",
+             Self::Noop => "noop",
+        }
+    }
+}
+
 
 pub type TransType = (String, Vec<u8>);
 pub type PubType = (String, Vec<u8>);
-type NilRound = (usize, usize);
+type NilRound = (u64, u64);
 
 #[cfg(feature = "timestamp_test")]
 #[derive(Debug, Clone, Copy)]
@@ -226,35 +239,35 @@ pub struct Bft {
     // timer_seter: Sender<TimeoutInfo>,
     // receiver: Receiver<BftTurn>,
     params: BftParams,
-    height: usize,
-    round: usize,
+    height: u64,
+    round: u64,
 
     // NilRound.0: nil round 1. last nil propose round
     nil_round: NilRound,
     step: Step,
-    proof: BTreeMap<usize, BftProof>,
-    height_hashes: BTreeMap<usize, H256>,
+    proof: BTreeMap<u64, BftProof>,
+    height_hashes: BTreeMap<u64, H256>,
     // Timestamps of old blocks
-    height_timestamps: BTreeMap<usize, u64>,
+    height_timestamps: BTreeMap<u64, u64>,
     votes: VoteCollector,
     proposals: ProposalCollector,
     proposal: Option<H256>,
-    //locked_proposal: Option<H256>,
-    lock_round: Option<usize>,
-    locked_vote: Option<VoteSet>,
+    locked_proposal: Option<H256>,
+    lock_round: Option<u64>,
+    // locked_vote: Option<VoteSet>,
     // lock_round set, locked block means itself,else means proposal's block
-    locked_block: Option<Vec<u8>>,
+    // locked_block: Option<Vec<u8>>,
     wal_log: RefCell<Wal>,
-    send_filter: BTreeMap<usize, Instant>,
-    last_commit_round: Option<usize>,
+    send_filter: BTreeMap<u64, Instant>,
+    last_commit_round: Option<u64>,
     start_time: Duration,
     auth_manage: AuthorityManage,
     is_consensus_node: bool,
     //params meaning: key :index 0->height,1->round ,value:0->verified msg,1->verified result
-    unverified_msg: BTreeMap<(usize, usize), (Vec<u8>, VerifiedBlockStatus)>,
+    unverified_msg: BTreeMap<(u64, u64), (Vec<u8>, VerifiedBlockStatus)>,
     // VecDeque might work, Almost always it is better to use Vec or VecDeque instead of LinkedList
-    block_txs: BTreeMap<usize, Vec<u8>>,
-    block_proof: Option<(usize, ProposalWithProof)>,
+    block_txs: BTreeMap<u64, Vec<u8>>,
+    block_proof: Option<(u64, ProposalWithProof)>,
 
     // The verified blocks with the bodies of transactions.
     verified_blocks: Vec<(H256, Vec<u8>)>,
@@ -262,7 +275,7 @@ pub struct Bft {
     // whether the datas above have been cleared.
     is_cleared: bool,
 
-    leader_origins: BTreeMap<(usize, usize), u32>,
+    leader_origins: BTreeMap<(u64, u64), u32>,
 
     version: Option<u32>,
 
@@ -336,7 +349,7 @@ impl Bft {
             proposal: None,
             lock_round: None,
             locked_vote: None,
-            locked_block: None,
+            locked_proposal: None,
             wal_log: RefCell::new(Wal::create(&*logpath).unwrap()),
             send_filter: BTreeMap::new(),
             last_commit_round: None,
@@ -376,8 +389,8 @@ impl Bft {
 
     fn is_round_leader(
         &self,
-        height: usize,
-        round: usize,
+        height: u64,
+        round: u64,
         address: &Address,
     ) -> Result<bool, EngineError> {
         let p = &self.auth_manage;
@@ -388,7 +401,7 @@ impl Bft {
         let proposer_nonce = height + round;
         let proposer: &Address = p
             .authorities
-            .get(proposer_nonce % p.authorities.len())
+            .get(proposer_nonce as usize % p.authorities.len())
             .expect(
                 "There are validator_n() authorities; \
                  taking number modulo validator_n() gives number in validator_n() range; qed",
@@ -412,69 +425,14 @@ impl Bft {
         None
     }
 
-    fn remove_verified_block(&mut self, height: usize) {
+    fn remove_verified_block(&mut self, height: u64) {
         // self.verified_blocks
-        //     .retain(|(_, block)| block.get_header().get_height() as usize > height);
+        //     .retain(|(_, block)| block.get_header().get_height() as u64 > height);
     }
 
-    pub fn pub_proposal(&mut self, proposal: &Proposal) -> Vec<u8> {
-        let mut compact_proposal = CompactProposal::new();
-        // compact_proposal.set_block(compact_block);
-        // compact_proposal.set_round(self.round as u64);
-        // compact_proposal.set_height(self.height as u64);
-
-        let mut votes = Vec::new();
-        for (sender, vote_message) in proposal.clone().lock_votes.unwrap().votes_by_sender {
-            let mut vote = Vote::new();
-            if vote_message.proposal.is_none() {
-                continue;
-            }
-            // vote.set_proposal(vote_message.proposal.unwrap().to_vec());
-            // vote.set_sender(sender.to_vec());
-            // vote.set_signature(vote_message.signature.to_vec());
-            votes.push(vote);
-        }
-
-        // compact_proposal.set_islock(true);
-        // compact_proposal.set_lock_round(proposal.lock_round);
-        // compact_proposal.set_lock_votes(votes.into());
-
-        let compact_signed_proposal = {
-            let mut signed_proposal = CompactSignedProposal::new();
-            let message: Vec<u8> = signed_proposal.clone().into();
-            let author = &self.params.signer;
-            let hash = message.crypt_hash();
-            let signature = Signature::sign(author.keypair.privkey(), &hash).unwrap();
-            trace!("Pub_proposal {} hash: {}", self, hash);
-            // signed_proposal.set_proposal(compact_proposal);
-            // signed_proposal.set_signature(signature.to_vec());
-            signed_proposal
-        };
-
-        // Send CompactSignedProposal to nextwork.
+    pub fn pub_proposal(&mut self, compact_signed_proposal: &CompactSignedProposal) {
         let bmsg = compact_signed_proposal.clone().into();
-
-        // self.pub_sender
-        //     .send((
-        //         routing_key!(Consensus >> CompactSignedProposal).into(),
-        //         msg.try_into().unwrap(),
-        //     ))
-        //     .unwrap();
-
-        //If consensus has the full verified block, then send it to executor.
-        // if let Some(block) = self.get_verified_block(&block_hash) {
-        //     // Send SignedProposal to executor.
-        //     let signed_proposal =
-        //         compact_signed_proposal.complete(block.get_body().get_transactions().to_vec());
-        //     let msg: Message = signed_proposal.into();
-        //     // self.pub_sender
-        //     //     .send((
-        //     //         routing_key!(Consensus >> SignedProposal).into(),
-        //     //         msg.try_into().unwrap(),
-        //     //     ))
-        //     //     .unwrap();
-        // };
-        bmsg
+        self.send_raw_net_msg(VoteMsgType::Proposal.into(), 0, bmsg);
     }
 
     fn search_history_verified_block(&mut self, hash: H256) -> bool {
@@ -485,7 +443,7 @@ impl Bft {
         false
     }
 
-    fn follower_proc_prevote(&mut self, height: usize, round: usize, hash: Option<H256>) -> bool {
+    fn follower_proc_prevote(&mut self, height: u64, round: u64, hash: Option<H256>) -> bool {
         trace!("Follower proc prevote hash {:?} self {:?}", hash, self);
         if let Some(hash) = hash {
             let old_lock_round = self.unlock_polc(round);
@@ -551,7 +509,7 @@ impl Bft {
         false
     }
 
-    fn check_vote_over_period(&self, height: usize, round: usize, check_step: Step) -> bool {
+    fn check_vote_over_period(&self, height: u64, round: u64, check_step: Step) -> bool {
         // When round > self.round pass
         if height < self.height
             || (height == self.height && round < self.round)
@@ -564,11 +522,11 @@ impl Bft {
         false
     }
 
-    fn _is_right_step(&self, height: usize, round: usize, step: Step) -> bool {
+    fn _is_right_step(&self, height: u64, round: u64, step: Step) -> bool {
         self.round == round && self.step == step && self.height == height
     }
 
-    fn unlock_polc(&mut self, round: usize) -> Option<usize> {
+    fn unlock_polc(&mut self, round: u64) -> Option<u64> {
         let old = self.lock_round;
         if self.lock_round.is_some() && self.lock_round.unwrap() < round {
             //&& round <= self.round {
@@ -584,7 +542,7 @@ impl Bft {
         old
     }
 
-    fn uniform_proc_new_view(&mut self, height: usize, round: usize) -> bool {
+    fn uniform_proc_new_view(&mut self, height: u64, round: u64) -> bool {
         debug!(
             "Uniform proc new view {} begin h: {}, r: {}",
             self, height, round
@@ -606,7 +564,7 @@ impl Bft {
                 for (hash, count) in vote_set.unwrap().votes_by_proposal.iter().rev() {
                     sum += count;
                     if sum > fnum {
-                        let nround = hash.low_u64() as usize;
+                        let nround = hash.low_u64() as u64;
                         if self.nil_round.0 < nround {
                             self.nil_round.0 = nround;
                         }
@@ -622,7 +580,7 @@ impl Bft {
         false
     }
 
-    // fn search_history_proposal(&mut self, height: usize, round: usize, checked_hash: H256) -> bool {
+    // fn search_history_proposal(&mut self, height: u64, round: u64, checked_hash: H256) -> bool {
     //     if let Some(op) = self.proposals.get_proposal(height, round) {
     //         let pro_block = CompactBlock::try_from(&op.block);
     //         if let Ok(block) = pro_block {
@@ -650,8 +608,8 @@ impl Bft {
 
     fn leader_proc_prevote(
         &mut self,
-        height: usize,
-        round: usize,
+        height: u64,
+        round: u64,
         _vote_hash: Option<H256>,
     ) -> bool {
         debug!(
@@ -758,8 +716,8 @@ impl Bft {
 
     fn leader_proc_precommit(
         &mut self,
-        height: usize,
-        round: usize,
+        height: u64,
+        round: u64,
         _vote_hash: Option<H256>,
     ) -> bool {
         debug!(
@@ -839,23 +797,23 @@ impl Bft {
         false
     }
 
-    fn get_faulty_limit_number(&self) -> usize {
-        self.auth_manage.validator_n() / 3
+    fn get_faulty_limit_number(&self) -> u64 {
+        self.auth_manage.validator_n() as u64 / 3 
     }
 
-    fn is_above_threshold(&self, n: usize) -> bool {
-        n * 3 > self.auth_manage.validator_n() * 2
+    fn is_above_threshold(&self, n: u64) -> bool {
+        n * 3 > self.auth_manage.validator_n() as u64 * 2
     }
 
-    fn is_equal_threshold(&self, n: usize) -> bool {
-        n == (self.auth_manage.validator_n() * 2) / 3
+    fn is_equal_threshold(&self, n: u64) -> bool {
+        n == (self.auth_manage.validator_n() as u64 * 2) / 3
     }
 
-    fn is_all_vote(&self, n: usize) -> bool {
-        n == self.auth_manage.validator_n()
+    fn is_all_vote(&self, n: u64) -> bool {
+        n == self.auth_manage.validator_n() as u64
     }
 
-    fn get_proposal_verified_result(&self, height: usize, round: usize) -> VerifiedBlockStatus {
+    fn get_proposal_verified_result(&self, height: u64, round: u64) -> VerifiedBlockStatus {
         self.unverified_msg
             .get(&(height, round))
             .map_or(VerifiedBlockStatus::Ok, |res| res.1)
@@ -904,7 +862,7 @@ impl Bft {
         true
     }
 
-    fn check_saved_vote(&mut self, height: usize, round: usize, step: Step) -> Option<H256> {
+    fn check_saved_vote(&mut self, height: u64, round: u64, step: Step) -> Option<H256> {
         let vote_set = self.votes.get_voteset(height, round, step);
         trace!(
             "follower check saved vote {} deal h: {}, r: {} s {}, vote_set: {:?}",
@@ -946,7 +904,7 @@ impl Bft {
         None
     }
 
-    fn do_commit_work(&mut self, height: usize, round: usize) {
+    fn do_commit_work(&mut self, height: u64, round: u64) {
         if self.uniform_check_and_commit_work(height, round) {
             /*wait for new status*/
             self.wal_save_state_step(height, round, Step::Commit);
@@ -956,7 +914,7 @@ impl Bft {
                 round,
                 Step::Commit,
                 Duration::from_millis(DEFAULT_TIME_INTERVAL)
-                    * ((round + 1) * self.auth_manage.validator_n()) as u32,
+                    * ((round  + 1) * self.auth_manage.validator_n() as u64) as u32,
             );
         } else {
             // clean the param if not locked
@@ -967,7 +925,7 @@ impl Bft {
         }
     }
 
-    fn follower_proc_precommit(&mut self, height: usize, round: usize, hash: Option<H256>) -> bool {
+    fn follower_proc_precommit(&mut self, height: u64, round: u64, hash: Option<H256>) -> bool {
         debug!(
             "follower proc precommit {} begin h: {}, r: {} hash {:?}",
             self, height, round, hash
@@ -1000,7 +958,7 @@ impl Bft {
         false
     }
 
-    fn uniform_check_and_commit_work(&mut self, height: usize, round: usize) -> bool {
+    fn uniform_check_and_commit_work(&mut self, height: u64, round: u64) -> bool {
         trace!(
             "uniform check commit work {} begin h: {}, r: {}, last_commit_round: {:?}",
             self,
@@ -1019,12 +977,12 @@ impl Bft {
         false
     }
 
-    fn wal_save_proof(&self, _height: usize, _proof: &BftProof) {
+    fn wal_save_proof(&self, _height: u64, _proof: &BftProof) {
         //let bmsg = serialize(proof, Infinite).unwrap();
         //let _ = self.wal_save_message(height + 1, LogType::Commits, &bmsg);
     }
 
-    fn deal_old_height_when_commited(&mut self, height: usize) -> bool {
+    fn deal_old_height_when_commited(&mut self, height: u64) -> bool {
         debug!("deal old_height when commited {} h: {} ", self, height);
         if self.height <= height {
             self.clean_proposal_locked_info();
@@ -1040,11 +998,11 @@ impl Bft {
         false
     }
 
-    fn generate_proof(&mut self, height: usize, round: usize, hash: H256) -> Option<BftProof> {
+    fn generate_proof(&mut self, height: u64, round: u64, hash: H256) -> Option<BftProof> {
         let mut commits = HashMap::new();
         {
             let vote_set = self.votes.get_voteset(height, round, Step::Precommit);
-            let mut num: usize = 0;
+            let mut num: u64 = 0;
             if let Some(vote_set) = vote_set {
                 for (sender, vote) in &vote_set.votes_by_sender {
                     if vote.proposal.is_none() {
@@ -1061,8 +1019,8 @@ impl Bft {
             }
         }
         let mut proof = BftProof::default();
-        proof.height = height;
-        proof.round = round;
+        proof.height = height as usize;
+        proof.round = round as usize;
         proof.proposal = hash;
         proof.commits = commits;
         Some(proof)
@@ -1151,7 +1109,7 @@ impl Bft {
         //     .unwrap();
     }
 
-    fn pub_newview_message(&mut self, height: usize, round: usize) {
+    fn pub_newview_message(&mut self, height: u64, round: u64) {
         let author = &self.params.signer;
         let hash = {
             if self.params.issue_nil_block {
@@ -1168,8 +1126,8 @@ impl Bft {
 
     fn pub_follower_message(
         &mut self,
-        height: usize,
-        round: usize,
+        height: u64,
+        round: u64,
         step: Step,
         hash: Option<H256>,
     ) {
@@ -1191,7 +1149,7 @@ impl Bft {
         );
     }
 
-    fn pub_leader_message(&mut self, height: usize, round: usize, step: Step, hash: Option<H256>) {
+    fn pub_leader_message(&mut self, height: u64, round: u64, step: Step, hash: Option<H256>) {
         let mut send_votes = Vec::new();
         if let Some(hash) = hash {
             if !hash.is_zero() {
@@ -1208,7 +1166,7 @@ impl Bft {
                     }
                 }
 
-                if self.is_above_threshold(send_votes.len()) {
+                if self.is_above_threshold(send_votes.len() as u64) {
                     let msg = serialize(&(height, round, step, Some(hash), send_votes)).unwrap();
                     trace!(
                         "Leader pub success aggregate msg hash {:?} len {} step {:?}",
@@ -1230,7 +1188,7 @@ impl Bft {
         let author = &self.params.signer;
 
         // only need leader's signature
-        let tmp: (usize, usize, Step, Address, Option<H256>) =
+        let tmp: (u64, u64, Step, Address, Option<H256>) =
             (height, round, step, author.address, hash);
         let tmp_msg = serialize(&tmp).unwrap();
         let signature = Signature::sign(author.keypair.privkey(), &tmp_msg.crypt_hash()).unwrap();
@@ -1243,8 +1201,8 @@ impl Bft {
 
     fn add_leader_self_vote(
         &mut self,
-        height: usize,
-        round: usize,
+        height: u64,
+        round: u64,
         step: Step,
         hash: Option<H256>,
     ) -> bool {
@@ -1269,7 +1227,7 @@ impl Bft {
         self.auth_manage.validators.contains(address)
     }
 
-    fn change_state_step(&mut self, height: usize, round: usize, step: Step) {
+    fn change_state_step(&mut self, height: u64, round: u64, step: Step) {
         trace!(
             "change_state_step {} -> {{ h: {}, r: {}, s: {} }}",
             self,
@@ -1282,16 +1240,16 @@ impl Bft {
         self.step = step;
     }
 
-    fn wal_save_state_step(&self, height: usize, round: usize, step: Step) -> Option<usize> {
+    fn wal_save_state_step(&self, height: u64, round: u64, step: Step) -> Option<u64> {
         let message = serialize(&(height, round, self.nil_round, step)).unwrap();
         self.wal_save_message(height, LogType::State, &message)
     }
 
-    fn wal_save_message(&self, height: usize, ltype: LogType, msg: &[u8]) -> Option<usize> {
+    fn wal_save_message(&self, height: u64, ltype: LogType, msg: &[u8]) -> Option<u64> {
         self.wal_log.borrow_mut().save(height, ltype, msg).ok()
     }
 
-    fn wal_new_height(&self, height: usize) -> Option<usize> {
+    fn wal_new_height(&self, height: u64) -> Option<u64> {
         self.wal_log.borrow_mut().set_height(height).ok()
     }
 
@@ -1308,20 +1266,20 @@ impl Bft {
     fn decode_add_leader_message(
         &mut self,
         content: &[u8],
-    ) -> Result<(usize, usize, Step, Option<H256>), EngineError> {
+    ) -> Result<(u64, u64, Step, Option<H256>), EngineError> {
         if let Ok(decoded) = deserialize(content) {
-            let (h, r, s, decode_hash, in_votes): (usize, usize, Step, Option<H256>, Vec<Vec<u8>>) =
+            let (h, r, s, decode_hash, in_votes): (u64, u64, Step, Option<H256>, Vec<Vec<u8>>) =
                 decoded;
             let vlen = in_votes.len();
             if decode_hash.is_some()
                 && !decode_hash.unwrap().is_zero()
-                && !self.is_above_threshold(vlen)
+                && !self.is_above_threshold(vlen as u64)
             {
                 return Err(EngineError::NotAboveThreshold(vlen));
             }
 
             if h < self.height || (h == self.height && r < self.round) {
-                return Err(EngineError::VoteMsgDelay(r));
+                return Err(EngineError::VoteMsgDelay(r as usize));
             }
 
             for in_vote in in_votes {
@@ -1360,7 +1318,7 @@ impl Bft {
                         process up */
                         if (h == self.height && r >= self.round)
                             || (h > self.height
-                                && h < self.height + self.auth_manage.validator_n() + 1)
+                                && h < self.height + self.auth_manage.validator_n() as u64 + 1)
                         {
                             debug!(
                                 "Decode message get vote: \
@@ -1398,7 +1356,7 @@ impl Bft {
     fn uniform_handle_newview(
         &mut self,
         content: &[u8],
-    ) -> Result<(VoteType, usize, usize, Step, Option<H256>), EngineError> {
+    ) -> Result<(VoteType, u64, u64, Step, Option<H256>), EngineError> {
         let decoded = self.decode_basic_message(content)?;
         let (h, r, step, sender, hash, signature) = decoded;
 
@@ -1413,7 +1371,7 @@ impl Bft {
         );
 
         if h < self.height {
-            return Err(EngineError::VoteMsgDelay(h));
+            return Err(EngineError::VoteMsgDelay(h as usize));
         }
 
         //deal with equal height,and round fall behind
@@ -1436,12 +1394,12 @@ impl Bft {
                 self.pub_newview_message(h, r);
                 trace!("Pub newview for old round h {} r {}", h, r);
             }
-            return Err(EngineError::VoteMsgDelay(r));
+            return Err(EngineError::VoteMsgDelay(r as usize));
         }
 
         /*bellow commit content is suit for when chain not syncing ,but consensus need
         process up */
-        if (h > self.height && h < self.height + self.auth_manage.validator_n() + 1)
+        if (h > self.height && h < self.height + self.auth_manage.validator_n() as u64 + 1)
             || (h == self.height && r >= self.round)
         {
             debug!(
@@ -1465,7 +1423,7 @@ impl Bft {
             );
             if ret {
                 if h > self.height {
-                    return Err(EngineError::VoteMsgForth(h));
+                    return Err(EngineError::VoteMsgForth(h as usize));
                 }
 
                 return Ok((VoteType::BoadcastVote, h, r, step, hash));
@@ -1478,13 +1436,13 @@ impl Bft {
     fn follower_handle_message(
         &mut self,
         content: &[u8],
-    ) -> Result<(VoteType, usize, usize, Step, Option<H256>), EngineError> {
+    ) -> Result<(VoteType, u64, u64, Step, Option<H256>), EngineError> {
         // let log_msg = content.to_owned();
 
         let ret = self.decode_add_leader_message(content);
         if let Ok((h, r, s, hash)) = ret {
             if h > self.height {
-                return Err(EngineError::VoteMsgForth(h));
+                return Err(EngineError::VoteMsgForth(h as usize));
             }
             return Ok((VoteType::LeaderAggregateVote, h, r, s, hash));
         }
@@ -1495,7 +1453,7 @@ impl Bft {
     fn decode_basic_message(
         &self,
         content: &[u8],
-    ) -> Result<(usize, usize, Step, Address, Option<H256>, Signature), EngineError> {
+    ) -> Result<(u64, u64, Step, Address, Option<H256>, Signature), EngineError> {
         if let Ok(decoded) = deserialize(&content[..]) {
             let (message, signature): (Vec<u8>, &[u8]) = decoded;
             if signature.len() != SIGNATURE_BYTES_LEN {
@@ -1516,7 +1474,7 @@ impl Bft {
     fn leader_handle_message(
         &mut self,
         content: &[u8],
-    ) -> Result<(VoteType, usize, usize, Step, Option<H256>), EngineError> {
+    ) -> Result<(VoteType, u64, u64, Step, Option<H256>), EngineError> {
         let decoded = self.decode_basic_message(content)?;
         let (h, r, step, sender, hash, signature) = decoded;
 
@@ -1531,7 +1489,7 @@ impl Bft {
         );
 
         if h < self.height {
-            return Err(EngineError::VoteMsgDelay(h));
+            return Err(EngineError::VoteMsgDelay(h as usize));
         }
 
         if self
@@ -1540,7 +1498,7 @@ impl Bft {
         {
             /*bellow commit content is suit for when chain not syncing ,but consensus need
             process up */
-            if (h > self.height && h < self.height + self.auth_manage.validator_n() + 1)
+            if (h > self.height && h < self.height + self.auth_manage.validator_n() as u64 + 1)
                 || (h == self.height && r >= self.round)
             {
                 debug!(
@@ -1565,7 +1523,7 @@ impl Bft {
                 );
                 if ret {
                     if h > self.height {
-                        return Err(EngineError::VoteMsgForth(h));
+                        return Err(EngineError::VoteMsgForth(h as usize));
                     }
                     return Ok((VoteType::FollowerTOLeaderVote, h, r, step, hash));
                 }
@@ -1578,7 +1536,7 @@ impl Bft {
     fn handle_message(
         &mut self,
         message: &[u8],
-    ) -> Result<(VoteType, usize, usize, Step, Option<H256>), EngineError> {
+    ) -> Result<(VoteType, u64, u64, Step, Option<H256>), EngineError> {
         if let Ok(decode) = deserialize(&message[..]) {
             let (vtype, content): (VoteType, Vec<u8>) = decode;
             if vtype == VoteType::FollowerTOLeaderVote {
@@ -1592,7 +1550,7 @@ impl Bft {
         Err(EngineError::ErrFormatted)
     }
 
-    fn follower_proc_proposal(&mut self, height: usize, round: usize) -> bool {
+    fn follower_proc_proposal(&mut self, height: u64, round: u64) -> bool {
         let proposal = self.proposals.get_proposal(height, round);
         if let Some(proposal) = proposal {
             trace!("proc proposal {} begin h: {}, r: {}", self, height, round);
@@ -1731,10 +1689,7 @@ impl Bft {
 
     fn verify_req(
         &mut self,
-        csp_msg: Vec<u8>,
-        compact_block: Vec<u8>,
-        vheight: usize,
-        vround: usize,
+        sign_proposal: CompactSignedProposal
     ) -> bool {
         // let tx_hashes = compact_block.get_body().get_tx_hashes();
         // // If there is no transaction, the block don't have to be verified.
@@ -1769,7 +1724,7 @@ impl Bft {
         true
     }
 
-    fn verify_timestamp(&self, height: usize, pro_ts: u64) -> bool {
+    fn verify_timestamp(&self, height: u64, pro_ts: u64) -> bool {
         if height == 0 {
             return true;
         }
@@ -1799,140 +1754,132 @@ impl Bft {
 
     fn uniform_handle_proposal(
         &mut self,
-        msg: &NetworkMsg,
+        net_msg: &NetworkMsg,
         wal_flag: bool,
-    ) -> Result<(usize, usize), EngineError> {
+    ) -> Result<(u64, u64), EngineError> {
         trace!("Handle proposal {} begin wal_flag: {}", self, wal_flag);
 
-        // let csp_msg = if let Ok(csp_msg) = Message::try_from(body) {
-        //     csp_msg
-        // } else {
-        //     return Err(EngineError::UnexpectedMessage);
-        // };
+       
+        let sign_proposal : CompactSignedProposal = deserialize(&net_msg.msg).map_err(|_| EngineError::ErrFormatted)?;
+
+        let height = sign_proposal.proposal.height;
+        let round = sign_proposal.proposal.round;
+        let signature = Signature::from(&sign_proposal.sig[..]);
+        if signature.len() != SIGNATURE_BYTES_LEN {
+            return Err(EngineError::InvalidSignature);
+        }
+       
         // let origin = csp_msg.get_origin() as u32;
         // let result = csp_msg.clone().take_compact_signed_proposal();
         // if let Some(compact_signed_proposal) = result {
-        //     let signature = {
-        //         let signature = compact_signed_proposal.get_signature();
-        //         if signature.len() != SIGNATURE_BYTES_LEN {
-        //             return Err(EngineError::InvalidSignature);
-        //         }
-        //         Signature::from(signature)
-        //     };
+        //     
         //     let compact_proposal = compact_signed_proposal.get_proposal().clone();
-        //     let height = compact_proposal.get_height() as usize;
-        //     let round = compact_proposal.get_round() as usize;
-        //     if height < self.height
-        //         || (height == self.height && round < self.round)
-        //         || (height == self.height && round == self.round && self.step > Step::ProposeWait)
-        //     {
-        //         debug!("Handle proposal {} get old proposal", self);
-        //         return Err(EngineError::VoteMsgDelay(height));
-        //     } else if height == self.height && self.step == Step::CommitWait {
-        //         debug!(
-        //             "Not handle proposal {} because conensus is ok in height",
-        //             self
-        //         );
-        //         return Err(EngineError::VoteMsgForth(round));
-        //     }
+        //     let height = compact_proposal.get_height() as u64;
+        //     let round = compact_proposal.get_round() as u64;
+        if height < self.height
+            || (height == self.height && round < self.round)
+            || (height == self.height && round == self.round && self.step > Step::ProposeWait)
+        {
+            debug!("Handle proposal {} get old proposal", self);
+            return Err(EngineError::VoteMsgDelay(height as usize));
+        } else if height == self.height && self.step == Step::CommitWait {
+            debug!(
+                "Not handle proposal {} because conensus is ok in height",
+                self
+            );
+            return Err(EngineError::VoteMsgForth(round as usize));
+        }
 
-        //     let hash = {
-        //         let message: Vec<u8> = (&compact_proposal).try_into().unwrap();
-        //         message.crypt_hash()
-        //     };
-        //     trace!("handle proposal {} hash {:?}", self, hash);
-        //     if let Ok(pubkey) = signature.recover(&hash) {
-        //         let sender = pubkey_to_address(&pubkey);
+        let hash = {
+            let message: Vec<u8> = (sign_proposal.proposal.clone()).into();
+            message.crypt_hash()
+        };
+        trace!("handle proposal {} hash {:?}", self, hash);
+        
 
-        //         let ret = self.is_round_leader(height, round, &sender);
-        //         if !ret.unwrap_or(false) {
-        //             warn!("Handle proposal {},{:?} is not round leader ", self, sender);
-        //             return Err(EngineError::NotProposer(Mismatch {
-        //                 expected: Address::default(),
-        //                 found: sender,
-        //             }));
-        //         }
+        if height < self.height
+            || (height == self.height && round < self.round)
+            || (height == self.height && round == self.round && self.step > Step::ProposeWait)
+        {
+            debug!("Handle proposal {} get old proposal", self);
+            return Err(EngineError::VoteMsgDelay(height as usize));
+        } else if height == self.height && self.step == Step::CommitWait {
+            debug!(
+                "Not handle proposal {} because conensus is ok in height",
+                self
+            );
+            return Err(EngineError::VoteMsgForth(round as usize));
+        }
 
-        //         trace!(
-        //             "Handle proposal {} h: {}, r: {}, sender: {:?}",
-        //             self,
-        //             height,
-        //             round,
-        //             pubkey_to_address(&pubkey)
-        //         );
-        //         let compact_block = compact_proposal.clone().take_block();
-        //         if !self.params.issue_nil_block
-        //             && compact_block.get_body().get_tx_hashes().is_empty()
-        //         {
-        //             info!("Handle proposal {} get nil body", self);
+        if let Ok(pubkey) = signature.recover(&hash) {
+            let sender = pubkey_to_address(&pubkey);
 
-        //             if round > self.nil_round.1 {
-        //                 self.nil_round.1 = round;
-        //                 self.nil_round.0 += 1;
-        //             }
+            let ret = self.is_round_leader(height, round, &sender);
+            if !ret.unwrap_or(false) {
+                warn!("Handle proposal {},{:?} is not round leader ", self, sender);
+                return Err(EngineError::NotProposer(Mismatch {
+                    expected: Address::default(),
+                    found: sender,
+                }));
+            }
 
-        //             self.send_txlist_request(self.height - 1);
-        //             // TODO other error type
-        //             return Err(EngineError::NilProposal);
-        //         }
+            trace!(
+                "Handle proposal {} h: {}, r: {}, sender: {:?}",
+                self,
+                height,
+                round,
+                pubkey_to_address(&pubkey)
+            );
 
-        //         if !self.verify_req(csp_msg, &compact_block, height, round) {
-        //             warn!("Handle proposal {} verify req is error", self);
-        //             return Err(EngineError::InvalidTxInProposal);
-        //         }
+                // let compact_block = compact_proposal.clone().take_block();
+                // if !self.params.issue_nil_block
+                //     && compact_block.get_body().get_tx_hashes().is_empty()
+                // {
+                //     info!("Handle proposal {} get nil body", self);
 
-        //         // let ret = self.is_round_leader(height, round, &pubkey_to_address(&pubkey));
-        //         // if !ret.unwrap_or(false) {
-        //         //     warn!("handle proposal {} is round proposer {:?}", self, ret);
-        //         //     return Err(ret.err().unwrap());
-        //         // }
-        //         self.leader_origins.insert((height, round), origin);
-        //         if (height == self.height && round >= self.round)
-        //             || (height > self.height
-        //                 && height < self.height + self.auth_manage.validator_n() + 1)
-        //         {
-        //             if wal_flag {
-        //                 self.wal_save_message(height, LogType::Propose, body)
-        //                     .unwrap();
-        //             }
-        //             debug!(
-        //                 "Handle proposal {} add proposal h: {}, r: {}",
-        //                 self, height, round
-        //             );
-        //             let blk = compact_block.try_into().unwrap();
-        //             let mut lock_round = None;
-        //             let lock_votes = if compact_proposal.get_islock() {
-        //                 lock_round = Some(compact_proposal.get_lock_round() as usize);
-        //                 let mut vote_set = VoteSet::new();
-        //                 for vote in compact_proposal.get_lock_votes() {
-        //                     vote_set.add(
-        //                         Address::from_slice(vote.get_sender()),
-        //                         &VoteMessage {
-        //                             proposal: Some(H256::from_slice(vote.get_proposal())),
-        //                             signature: Signature::from(vote.get_signature()),
-        //                         },
-        //                     );
-        //                 }
-        //                 Some(vote_set)
-        //             } else {
-        //                 None
-        //             };
+                //     if round > self.nil_round.1 {
+                //         self.nil_round.1 = round;
+                //         self.nil_round.0 += 1;
+                //     }
 
-        //             let proposal = Proposal {
-        //                 block: blk,
-        //                 lock_round,
-        //                 lock_votes,
-        //             };
+                //     self.send_txlist_request(self.height - 1);
+                //     // TODO other error type
+                //     return Err(EngineError::NilProposal);
+                // }
 
-        //             self.proposals.add(height, round, proposal);
+                if !self.verify_req(sign_proposal.clone()) {
+                    warn!("Handle proposal {} verify req is error", self);
+                    return Err(EngineError::InvalidTxInProposal);
+                }
 
-        //             if height > self.height {
-        //                 return Err(EngineError::VoteMsgForth(height));
-        //             }
-        //             return Ok((height, round));
-        //         }
-        //     }
-        // }
+                // let ret = self.is_round_leader(height, round, &pubkey_to_address(&pubkey));
+                // if !ret.unwrap_or(false) {
+                //     warn!("handle proposal {} is round proposer {:?}", self, ret);
+                //     return Err(ret.err().unwrap());
+                // }
+
+                //self.leader_origins.insert((height, round), origin);
+                if (height == self.height && round >= self.round)
+                    || (height > self.height
+                        && height < self.height + self.auth_manage.validator_n() as u64 + 1)
+                {
+                    if wal_flag {
+                        self.wal_save_message(height, LogType::Propose, &net_msg.msg)
+                            .unwrap();
+                    }
+                    debug!(
+                        "Handle proposal {} add proposal h: {}, r: {}",
+                        self, height, round
+                    );
+                  
+                    self.proposals.add(height, round, sign_proposal.proposal.raw_proposal);
+
+                    if height > self.height {
+                        return Err(EngineError::VoteMsgForth(height as usize));
+                    }
+                    return Ok((height, round));
+                }
+            }
         Err(EngineError::UnexpectedMessage)
     }
 
@@ -1960,7 +1907,7 @@ impl Bft {
         self.last_commit_round = None;
     }
 
-    fn clean_verified_info(&mut self, height: usize) {
+    fn clean_verified_info(&mut self, height: u64) {
         self.unverified_msg = self.unverified_msg.split_off(&(height + 1, 0));
     }
 
@@ -1986,147 +1933,40 @@ impl Bft {
         self.pub_newview_message(height, round);
     }
 
-    fn generate_block(&mut self) -> (Option<Vec<u8>>, bool) {
-        // let mut block_has_txs = false;
-        // if self.version.is_none() {
-        //     warn!("Generate block {} self.version is none", self);
-        //     return (None, block_has_txs);
-        // }
-        // let height = self.height;
-        // // proposal new blk
-        // let mut block = Block::new();
-        // block.set_version(self.version.unwrap());
-        // if let Some(blocktxs) = self.block_txs.get(&height) {
-        //     if !self.params.issue_nil_block && blocktxs.get_body().get_transactions().is_empty() {
-        //         self.nil_round.0 += 1;
-        //         self.nil_round.1 = self.round;
-        //     } else {
-        //         block_has_txs = true;
-        //     }
-        //     block.set_body(blocktxs.get_body().clone());
-        // } else if height > INIT_HEIGHT {
-        //     info!("Generate block BLOCKTXS not given {}'s txs", height);
-        //     return (None, block_has_txs);
-        // }
-
-        // if let Some(pre_hash) = self.height_hashes.get(&(height - 1)) {
-        //     block.mut_header().set_prevhash(pre_hash.to_vec());
-        // } else if height != INIT_HEIGHT {
-        //     info!("Generate block {} self.pre_hash is none", self);
-        //     return (None, block_has_txs);
-        // }
-
-        // let mut proof = BftProof::default();
-        // let mut cur_ts = AsMillis::as_millis(&unix_now());
-
-        // if height > INIT_HEIGHT {
-        //     let get_proof = self.proof.get(&(height - 1));
-        //     if get_proof.is_none() || get_proof.unwrap().height != height - 1 {
-        //         info!("Generate block {} proof is none or old", self);
-        //         self.send_proof_request();
-        //         return (None, block_has_txs);
-        //     }
-        //     proof = get_proof.cloned().unwrap();
-
-        //     let phash = self.height_hashes.get(&(height - 1));
-        //     if phash.is_none() {
-        //         info!("Generate block {} prehash is none or old", self);
-        //         return (None, block_has_txs);
-        //     }
-        //     block
-        //         .mut_header()
-        //         .set_prevhash(phash.cloned().unwrap().to_vec());
-
-        //     if let Some(pre_ts) = self.height_timestamps.get(&(height - 1)) {
-        //         if cur_ts <= *pre_ts || cur_ts < *pre_ts + self.params.timer.get_total_duration() {
-        //             cur_ts = pre_ts + self.params.timer.get_total_duration();
-        //         }
-        //     }
-        // }
-        // block.mut_header().set_proof(proof.into());
-        // block.mut_header().set_timestamp(cur_ts);
-        // // time modify test option, normal choice zero
-        // #[cfg(feature = "timestamp_test")]
-        // {
-        //     match self.mock_time_modify.sym {
-        //         SignSymbol::Positive => block
-        //             .mut_header()
-        //             .set_timestamp(cur_ts.checked_add(self.mock_time_modify.off).unwrap()),
-        //         SignSymbol::Zero => {}
-        //         SignSymbol::Negative => block
-        //             .mut_header()
-        //             .set_timestamp(cur_ts.checked_sub(self.mock_time_modify.off).unwrap()),
-        //     }
-        // }
-
-        // let transactions_root = block.get_body().transactions_root();
-        // block.mut_header().set_height(height as u64);
-        // block
-        //     .mut_header()
-        //     .set_transactions_root(transactions_root.to_vec());
-        // block
-        //     .mut_header()
-        //     .set_proposer(self.params.signer.address.to_vec());
-
-        // (Some(block), block_has_txs)
-
-        (Some(vec![]), true)
+    fn sign_msg<T>(&self,can_hash: T) -> Signature where T:Into<Vec<u8>> {
+            let message: Vec<u8> = (&can_hash).into().unwrap();
+            let author = &self.params.signer;
+            let hash = message.crypt_hash();
+            Signature::sign(author.keypair.privkey(), &hash).unwrap()
     }
 
     pub fn leader_new_proposal(&mut self) -> bool {
-        let mut save_flag = true;
-        let blk;
+        let mut sign_prop = CompactSignedProposal::new();
+        let mut cp :CompactProposal;
 
         if let Some(lock_round) = self.lock_round {
-            if self.proposal.is_none() {
-                warn!(" Proposal is cleaned,why happend {} {} ", self, lock_round);
-                if let Some(proposal) = self.proposals.get_proposal(self.height, lock_round) {
-                    self.proposal = Some(proposal.phash);
-                } else {
-                    return false;
-                }
-            }
-
-            let lock_block = self.locked_block.clone().unwrap();
-            let lock_block_hash = lock_block.crypt_hash();
-            self.proposal = Some(lock_block_hash);
-            info!("New proposal proposal lock block {:?}", self);
-
-            //blk = lock_block.try_into().unwrap();
-            blk = lock_block.clone();
-            trace!("New proposal {} proposer vote locked block", self);
-        } else {
-            let (block, has_tx_flag) = self.generate_block();
-            if block.is_none() {
+            if let Some(proposal) = self.proposals.get_proposal(self.height, lock_round) {
+                self.proposals.add(self.height, self.round, proposal);
+                self.proposal = Some(proposal.phash);
+                cp = CompactProposal::new_with_lock(self.height, self.round, proposal);
+            } else {
+                warn!("not find locked proposal?");
                 return false;
             }
-            let block = block.unwrap();
-            let cblock = block.clone();
-            self.set_proposal_and_block(Some(cblock.crypt_hash()), Some(cblock.clone()));
-            // info!(
-            //     "New proposal {} proposal new block with {} txs: block hash {:?}",
-            //     self,
-            //     block.get_body().get_transactions().len(),
-            //     self.proposal
-            // );
 
-            if !self.params.issue_nil_block && !has_tx_flag {
-                save_flag = false;
-            }
-            // If we publish a proposal block, the block is verified by auth, already.
-            self.verified_blocks.push((self.proposal.unwrap(), block));
-            //blk = cblock.try_into().unwrap();
-            blk = cblock.clone();
+            let sig = self.sign_msg(cp);
+            sign_prop.set(cp, sig);
+            info!("New proposal proposal lock block {:?}", self);
+        } else {
+            let p = Proposal::new(self.proposal.unwrap());
+            let cp =  CompactProposal::new_with_proposal(self.height, self.round,p);
+            let sig = self.sign_msg(cp);
+            sign_prop.set(cp, sig);
+            info!("New proposal proposal {:?}", self);
         }
 
-        let proposal = Proposal {
-            //block: blk.clone(),
-            phash: H256::default(),
-            lock_round: self.lock_round,
-            lock_votes: self.locked_vote.clone(),
-        };
-        let bmsg = self.pub_proposal(&proposal);
-        if save_flag {
+        let bmsg = self.pub_proposal(&sign_prop);
+        if true {
             self.wal_save_message(self.height, LogType::Propose, &bmsg)
                 .unwrap();
             if self.lock_round.is_none() {
@@ -2134,18 +1974,18 @@ impl Bft {
                     self.height,
                     self.round,
                     VerifiedBlockStatus::Ok.value(),
-                    blk,
+                    sign_prop.into(),
                 ))
                 .unwrap();
                 self.wal_save_message(self.height, LogType::VerifiedBlock, &msg);
             }
-            self.proposals.add(self.height, self.round, proposal);
+            
             self.add_leader_self_vote(self.height, self.round, Step::Prevote, self.proposal);
         }
         true
     }
 
-    fn check_vote_count(&mut self, height: usize, round: usize, step: Step) -> bool {
+    fn check_vote_count(&mut self, height: u64, round: u64, step: Step) -> bool {
         let vote_set = self.votes.get_voteset(height, round, step);
         if let Some(vote_set) = vote_set {
             if self.is_above_threshold(vote_set.count) {
@@ -2155,7 +1995,7 @@ impl Bft {
         false
     }
 
-    fn follower_prevote_send(&mut self, height: usize, round: usize) {
+    fn follower_prevote_send(&mut self, height: u64, round: u64) {
         let prop = self.proposal;
         if self.lock_round.is_some() || prop.is_some() {
             self.pub_follower_message(height, round, Step::Prevote, prop);
@@ -2165,7 +2005,7 @@ impl Bft {
         }
     }
 
-    fn uniform_newview_timeout_vote(&mut self, height: usize, round: usize) {
+    fn uniform_newview_timeout_vote(&mut self, height: u64, round: u64) {
         trace!(
             "Node_process_timeout vote self {} h {} r {}",
             self,
@@ -2184,7 +2024,7 @@ impl Bft {
         );
     }
 
-    fn leader_proc_timeout_vote(&mut self, height: usize, round: usize, step: Step) {
+    fn leader_proc_timeout_vote(&mut self, height: u64, round: u64, step: Step) {
         trace!("Leader_proc_timeout_vote h {} r {}", height, round);
         if self.check_vote_count(height, round, step) {
             self.pub_leader_message(height, round, step, None);
@@ -2319,8 +2159,8 @@ impl Bft {
 
     fn follower_proc_prevote_raw(
         &mut self,
-        height: usize,
-        round: usize,
+        height: u64,
+        round: u64,
         hash: Option<H256>,
         vres: VerifiedBlockStatus,
     ) {
@@ -2354,8 +2194,8 @@ impl Bft {
 
     fn wrap_follower_proc_prevote_hash(
         &mut self,
-        height: usize,
-        round: usize,
+        height: u64,
+        round: u64,
         vres: VerifiedBlockStatus,
     ) {
         let hash = self.check_saved_vote(height, round, Step::Prevote);
@@ -2364,15 +2204,15 @@ impl Bft {
 
     fn wrap_follower_proc_prevote_verify(
         &mut self,
-        height: usize,
-        round: usize,
+        height: u64,
+        round: u64,
         hash: Option<H256>,
     ) {
         let vres = self.get_proposal_verified_result(height, round);
         self.follower_proc_prevote_raw(height, round, hash, vres);
     }
 
-    fn wrap_follower_proc_prevote(&mut self, height: usize, round: usize) {
+    fn wrap_follower_proc_prevote(&mut self, height: u64, round: u64) {
         let hash = self.check_saved_vote(height, round, Step::Prevote);
         let vres = self.get_proposal_verified_result(height, round);
         self.follower_proc_prevote_raw(height, round, hash, vres);
@@ -2388,6 +2228,7 @@ impl Bft {
 
         match net_msg.r#type.as_str().into() {
             VoteMsgType::Proposal => {
+                let _ = self.uniform_handle_proposal(&net_msg, true);
             },
             VoteMsgType::Prevote => {
             },
@@ -2396,7 +2237,8 @@ impl Bft {
             VoteMsgType::LeaderPrevote=>{},
             VoteMsgType::LeaderPrecommit =>{},
             _ => {},
-        }
+        };
+
         if true {
             //if from_broadcast && self.is_consensus_node {
             // match rtkey {
@@ -2491,7 +2333,7 @@ impl Bft {
             //             self.is_consensus_node = false;
             //         }
             //         self.auth_manage.receive_authorities_list(
-            //             rich_status.height as usize,
+            //             rich_status.height as u64,
             //             &authorities,
             //             &validators,
             //         );
@@ -2519,8 +2361,8 @@ impl Bft {
             //         let resp = msg.take_verify_block_resp().unwrap();
 
             //         let block = resp.get_block();
-            //         let vheight = resp.get_height() as usize;
-            //         let vround = resp.get_round() as usize;
+            //         let vheight = resp.get_height() as u64;
+            //         let vround = resp.get_round() as u64;
 
             //         let verify_res = if resp.get_pass() {
             //             // Save the verified block which has passed verification by the auth.
@@ -2584,7 +2426,7 @@ impl Bft {
             //             self,
             //             block_txs.get_height(),
             //         );
-            //         let height = block_txs.get_height() as usize;
+            //         let height = block_txs.get_height() as u64;
             //         //let msg: Vec<u8> = (&block_txs).try_into().unwrap();
 
             //         if !block_txs.get_body().get_transactions().is_empty() {
@@ -2617,7 +2459,7 @@ impl Bft {
         }
     }
 
-    fn set_state_timeout(&self, height: usize, round: usize, step: Step, delay: Duration) {
+    fn set_state_timeout(&self, height: u64, round: u64, step: Step, delay: Duration) {
         trace!(
             "Set state timeout: {:?},{:?},{:?},{:?},",
             height,
@@ -2635,7 +2477,7 @@ impl Bft {
     }
 
     // fn receive_new_status(&mut self, status: &RichStatus) {
-    //     let status_height = status.height as usize;
+    //     let status_height = status.height as u64;
 
     //     if status.interval == 0 {
     //         self.params.timer.set_total_duration(DEFAULT_TIME_INTERVAL);
@@ -2736,13 +2578,13 @@ impl Bft {
     //     }
     // }
 
-    fn proposal_interval_round_multiple(&self, round: usize) -> Duration {
+    fn proposal_interval_round_multiple(&self, round: u64) -> Duration {
         let real_round = (round + 1).wrapping_sub(self.nil_round.0);
         self.params.timer.get_propose() * (real_round as u32)
     }
 
     /// New round proposal wait interval should be exponentially times increase
-    fn proposal_interval_round_exp(&self, round: usize) -> Duration {
+    fn proposal_interval_round_exp(&self, round: u64) -> Duration {
         let coef = {
             let real_round = round.wrapping_sub(self.nil_round.0);
             if real_round > MAX_PROPOSAL_TIME_COEF {
@@ -2754,14 +2596,14 @@ impl Bft {
         self.params.timer.get_propose() * 2u32.pow(coef as u32)
     }
 
-    fn new_round_start(&mut self, height: usize, round: usize) {
+    fn new_round_start(&mut self, height: u64, round: u64) {
         self.new_round_start_with_added_time(height, round, Duration::new(0, 0));
     }
 
     fn new_round_start_with_added_time(
         &mut self,
-        height: usize,
-        round: usize,
+        height: u64,
+        round: u64,
         added_time: Duration,
     ) {
         self.change_state_step(height, round, Step::Propose);
@@ -2924,12 +2766,12 @@ impl Bft {
                     if let Ok(proof) = deserialize(&vec_out) {
                         let proof: BftProof = proof;
                         trace!("load_wal_log {} wal proof height: {:?}", self, proof.height);
-                        self.proof.insert(proof.height, proof);
+                        self.proof.insert(proof.height as u64, proof);
                     }
                 }
                 LogType::VerifiedPropose => {
                     if let Ok(decode) = deserialize(&vec_out) {
-                        let (vheight, vround, verified): (usize, usize, i8) = decode;
+                        let (vheight, vround, verified): (u64, u64, i8) = decode;
                         let status: VerifiedBlockStatus = verified.into();
                         trace!(
                             "load_wal_log {} LogType::VerifiedPropose status {:?}",
@@ -2945,7 +2787,7 @@ impl Bft {
                 }
                 LogType::VerifiedBlock => {
                     //     if let Ok(decode) = deserialize(&vec_out) {
-                    //         let (vheight, vround, verified, bytes): (usize, usize, i8, Vec<u8>) =
+                    //         let (vheight, vround, verified, bytes): (u64, u64, i8, Vec<u8>) =
                     //             decode;
                     //         let status: VerifiedBlockStatus = verified.into();
                     //         let block = Block::try_from(&bytes).unwrap();
@@ -2963,7 +2805,7 @@ impl Bft {
                     // trace!("load_wal_log {} LogType::AuthTxs begin", self);
                     // let blocktxs = BlockTxs::try_from(&vec_out);
                     // if let Ok(blocktxs) = blocktxs {
-                    //     let height = blocktxs.get_height() as usize;
+                    //     let height = blocktxs.get_height() as u64;
                     //     trace!(
                     //         "load_wal_log {} LogType::AuthTxs add height: {}",
                     //         self,
@@ -2976,8 +2818,8 @@ impl Bft {
                 LogType::QuorumVotes => {
                     if let Ok(decoded) = deserialize(&vec_out) {
                         let (height, round, step, hash, locked_vote): (
-                            usize,
-                            usize,
+                            u64,
+                            u64,
                             Step,
                             H256,
                             VoteSet,
@@ -3016,7 +2858,7 @@ impl Bft {
 
                 LogType::UnlockBlock => {
                     if let Ok(decoded) = deserialize(&vec_out) {
-                        let _round: usize = decoded;
+                        let _round: u64 = decoded;
                         self.clean_proposal_locked_info();
                     }
                 }
@@ -3103,7 +2945,7 @@ impl Bft {
         }
     }
 
-    fn send_txlist_request(&self, _height: usize) {
+    fn send_txlist_request(&self, _height: u64) {
 
         self.bft_channels.to_ctl_tx.send(BftToCtlMsg::GetProposalReq);
         

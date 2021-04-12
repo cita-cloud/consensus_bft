@@ -6,6 +6,9 @@ use cita_cloud_proto::consensus::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
+use crate::voteset::{Proposal};
+use crate::crypto::{pubkey_to_address, CreateKey, Sign, Signature, SIGNATURE_BYTES_LEN};
+use cita_types::H256;
 
 #[derive(Debug)]
 pub enum BftSvrMsg {
@@ -46,15 +49,19 @@ impl Into<Vec<u8>> for Vote {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct CompactSignedProposal {
     pub proposal: CompactProposal,
-    pub sig: Vec<u8>,
+    pub sig: Signature,
 }
 
 impl CompactSignedProposal {
     pub fn new() -> Self {
-        CompactSignedProposal::default()
+        Self::default()
+    }
+    pub fn set(&mut self,proposal: CompactProposal ,sig:Signature) -> Self {
+        self.proposal = proposal;
+        self.sig = sig;
     }
 }
 
@@ -64,18 +71,30 @@ impl Into<Vec<u8>> for CompactSignedProposal {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct CompactProposal {
-    pub block: Vec<u8>,
-    pub lock_round: u64,
-    pub lock_votes: Vec<Vote>,
-    pub round: u64,
     pub height: u64,
+    pub round: u64,
+    pub raw_proposal : Proposal,
 }
 
 impl CompactProposal {
-    pub fn new() -> Self {
-        CompactProposal::default()
+    pub fn new(h:u64,r:u64,phash:H256) -> Self {
+        let mut cp = CompactProposal::default();
+        cp.height = h;
+        cp.round = r;
+        cp.raw_proposal.phash = phash;
+    }
+
+    pub fn new_with_proposal(h:u64,r:u64,p: Proposal) -> Self {
+        let mut cp = CompactProposal::default();
+        cp.height = h;
+        cp.round = r;
+        cp.raw_proposal = p;
+    }
+
+    pub fn set_raw_proposal(&mut self,p :Proposal) {
+        self.raw_proposal = p;
     }
 }
 
