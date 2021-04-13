@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cita_bft::Step;
 use crate::crypto::{pubkey_to_address, Sign, Signature};
+use crate::message::Step;
 use crate::types::{Address, H256};
 use bincode::serialize;
 use serde::{Deserialize, Serialize};
@@ -183,7 +183,7 @@ impl VoteSet {
         }
         trace!(" check votes get {:?}", votes_by_proposal);
         for (hash, count) in &votes_by_proposal {
-            if (*count * 3) as usize> authorities.len() * 2 {
+            if (*count * 3) as usize > authorities.len() * 2 {
                 if hash.is_zero() {
                     return Ok(None);
                 } else {
@@ -268,11 +268,11 @@ pub struct Proposal {
 }
 
 impl Proposal {
-    pub fn new(phash : H256) -> Self {
+    pub fn new(phash: H256) -> Self {
         Self {
             phash,
-            lock_round : None,
-            lock_votes :None,
+            lock_round: None,
+            lock_votes: None,
         }
     }
     pub fn is_default(&self) -> bool {
@@ -292,9 +292,7 @@ impl Proposal {
                 .check(h, round, Step::Prevote, authorities);
 
             match ret {
-                Ok(Some(p)) => {
-                    p == self.phash
-                }
+                Ok(Some(p)) => p == self.phash,
                 _ => false,
             }
         }

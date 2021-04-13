@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cita_bft::{BftTurn, Step};
+use crate::cita_bft::BftTurn;
+use crate::message::Step;
 use cita_logger::{debug, error, info, trace, warn};
 use min_max_heap::MinMaxHeap;
 use std::cmp::Ordering;

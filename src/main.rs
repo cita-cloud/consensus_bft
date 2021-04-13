@@ -6,8 +6,8 @@ mod voteset;
 mod votetime;
 mod wal;
 
-use cita_types as types;
 use cita_crypto as crypto;
+use cita_types as types;
 #[macro_use]
 use cita_logger as logger;
 
@@ -80,8 +80,8 @@ impl ConsensusService for BftSvr {
         request: tonic::Request<ProposalWithProof>,
     ) -> std::result::Result<tonic::Response<SimpleResponse>, tonic::Status> {
         let pp = request.into_inner();
-        let (tx,rx) = tokio::sync::oneshot::channel();
-        self.to_bft_tx.send(BftSvrMsg::PProof(pp,tx)).unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.to_bft_tx.send(BftSvrMsg::PProof(pp, tx)).unwrap();
         let res = rx.await.unwrap();
         let reply = SimpleResponse { is_success: res };
         Ok(tonic::Response::new(reply))
@@ -143,15 +143,15 @@ impl BftToCtl {
                     }
                 }
 
-                BftToCtlMsg::CheckProposalReq(hash) => {
-                    let request = tonic::Request::new(Hash { hash });
+                BftToCtlMsg::CheckProposalReq(h, r, raw) => {
+                    let request = tonic::Request::new(Hash { hash: raw });
                     let response = client
                         .check_proposal(request)
                         .await
                         .map(|resp| resp.into_inner().is_success);
                     //.map_err(|e| e.into());
                     if let Ok(res) = response {
-                        let msg = CtlBackBftMsg::CheckProposalRes(res);
+                        let msg = CtlBackBftMsg::CheckProposalRes(h, r, res);
                         b2c.back_bft_tx.send(msg).unwrap();
                     }
                 }
@@ -206,7 +206,7 @@ impl BftToNet {
         client
     }
 
-    async fn run(mut b2n: BftToNet) { 
+    async fn run(mut b2n: BftToNet) {
         let mut client = Self::reconnect(b2n.net_port).await;
         loop {
             let request = Request::new(RegisterInfo {
@@ -221,7 +221,6 @@ impl BftToNet {
             }
         }
 
-        
         while let Some(msg) = b2n.to_net_rx.recv().await {
             let origin = msg.origin;
             let request = tonic::Request::new(msg);
