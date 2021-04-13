@@ -76,8 +76,8 @@ impl Into<Vec<u8>> for CompactSignedProposal {
 pub struct CompactProposal {
     pub height: u64,
     pub round: u64,
-    pub raw_proposal: Vec<u8>,
     pub vote_proposal: Proposal,
+    pub raw_proposal: Vec<u8>,
 }
 
 impl CompactProposal {
@@ -107,6 +107,41 @@ impl CompactProposal {
 impl Into<Vec<u8>> for CompactProposal {
     fn into(self) -> Vec<u8> {
         bincode::serialize(&self).unwrap()
+    }
+}
+
+enum VoteMsgType {
+    Noop,
+    Proposal,
+    Prevote,
+    Precommit,
+    LeaderPrevote,
+    LeaderPrecommit,
+}
+
+impl From<&str> for VoteMsgType {
+    fn from(s: &str) -> Self {
+        match s {
+            "proposal" => Self::Proposal,
+            "prevote" => Self::Prevote,
+            "precommit" => Self::Precommit,
+            "lprevote" => Self::LeaderPrevote,
+            "lprecommit" => Self::LeaderPrecommit,
+            _ => Self::Noop,
+        }
+    }
+}
+
+impl Into<&str> for VoteMsgType {
+    fn into(self) -> &'static str {
+        match self {
+            Self::Proposal => "proposal",
+            Self::Prevote => "prevote",
+            Self::Precommit => "precommit",
+            Self::LeaderPrevote => "lprevote",
+            Self::LeaderPrecommit => "lprecommit",
+            Self::Noop => "noop",
+        }
     }
 }
 
@@ -148,6 +183,7 @@ impl From<u8> for Step {
     }
 }
 
+
 impl ::std::fmt::Display for Step {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{:?}", *self)
@@ -174,6 +210,20 @@ pub struct SignedFollowerVote {
 }
 
 impl Into<Vec<u8>> for SignedFollowerVote {
+    fn into(self) -> Vec<u8> {
+        bincode::serialize(&self).unwrap()
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct LeaderVote {
+    pub height: u64,
+    pub round: u64,
+    pub hash:Option<H256>,
+    pub votes: Vec<SignedFollowerVote>,
+}
+
+impl Into<Vec<u8>> for LeaderVote {
     fn into(self) -> Vec<u8> {
         bincode::serialize(&self).unwrap()
     }

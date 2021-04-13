@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::crypto::{pubkey_to_address, Sign, Signature};
-use crate::message::Step;
+use crate::message::{Step,SignedFollowerVote};
 use crate::types::{Address, H256};
 use bincode::serialize;
 use serde::{Deserialize, Serialize};
@@ -38,20 +38,18 @@ impl VoteCollector {
 
     pub fn add(
         &mut self,
-        height: u64,
-        round: u64,
-        step: Step,
         sender: Address,
-        vote: &VoteMessage,
+        sign_vote: &SignedFollowerVote,
     ) -> bool {
+        let height = sign_vote.vote.height;
         if self.votes.contains_key(&height) {
             self.votes
                 .get_mut(&height)
                 .unwrap()
-                .add(round, step, sender, vote)
+                .add(sender, vote)
         } else {
             let mut round_votes = RoundCollector::new();
-            round_votes.add(round, step, sender, vote);
+            round_votes.add( sender, vote);
             self.votes.insert(height, round_votes);
             true
         }
@@ -77,15 +75,19 @@ impl RoundCollector {
         }
     }
 
-    pub fn add(&mut self, round: u64, step: Step, sender: Address, vote: &VoteMessage) -> bool {
+    pub fn add(&mut self,sender: Address, sign_vote: &SignedFollowerVote) -> bool {
+        
+        let round = sign_vote.vote.round;
+        let step = sign_vote.vote.step;
+
         if self.round_votes.contains_key(&round) {
             self.round_votes
                 .get_mut(&round)
                 .unwrap()
-                .add(step, sender, &vote)
+                .add(step, sender, &sign_vote)
         } else {
             let mut step_votes = StepCollector::new();
-            step_votes.add(step, sender, &vote);
+            step_votes.add(step, sender, &sign_vote);
             self.round_votes.insert(round, step_votes);
             true
         }
@@ -111,11 +113,12 @@ impl StepCollector {
         }
     }
 
-    pub fn add(&mut self, step: Step, sender: Address, vote: &VoteMessage) -> bool {
+    pub fn add(&mut self, sender: Address, sign_vote: &SignedFollowerVote) -> bool {
+        let step = sign_vote.vote.step;
         self.step_votes
             .entry(step)
             .or_insert_with(VoteSet::new)
-            .add(sender, vote)
+            .add(sender, sign_vote)
     }
 
     pub fn get_voteset(&self, step: Step) -> Option<VoteSet> {
@@ -126,7 +129,7 @@ impl StepCollector {
 //1. sender's votemessage 2. proposal'hash count
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct VoteSet {
-    pub votes_by_sender: BTreeMap<Address, VoteMessage>,
+    pub votes_by_sender: BTreeMap<Address, SignedFollowerVote>,
     pub votes_by_proposal: BTreeMap<H256, u64>,
     pub count: u64,
 }
@@ -141,7 +144,7 @@ impl VoteSet {
     }
 
     //just add ,not check
-    pub fn add(&mut self, sender: Address, vote: &VoteMessage) -> bool {
+    pub fn add(&mut self, sender: Address, vote: &SignedFollowerVote) -> bool {
         let mut added = false;
         self.votes_by_sender.entry(sender).or_insert_with(|| {
             added = true;
@@ -195,11 +198,11 @@ impl VoteSet {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct VoteMessage {
-    pub proposal: Option<H256>,
-    pub signature: Signature,
-}
+// #[derive(Serialize, Deserialize, Clone, Debug)]
+// pub struct SignedFollowerVote {
+//     pub proposal: Option<H256>,
+//     pub signature: Signature,
+// }
 
 #[derive(Debug)]
 pub struct ProposalCollector {
