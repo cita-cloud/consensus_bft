@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::crypto::{pubkey_to_address, Sign, Signature};
-use crate::message::{Step,SignedFollowerVote};
+use crate::message::{SignedFollowerVote, Step};
 use crate::types::{Address, H256};
 use bincode::serialize;
 use serde::{Deserialize, Serialize};
@@ -36,20 +36,13 @@ impl VoteCollector {
         }
     }
 
-    pub fn add(
-        &mut self,
-        sender: Address,
-        sign_vote: &SignedFollowerVote,
-    ) -> bool {
+    pub fn add(&mut self, sender: Address, sign_vote: &SignedFollowerVote) -> bool {
         let height = sign_vote.vote.height;
         if self.votes.contains_key(&height) {
-            self.votes
-                .get_mut(&height)
-                .unwrap()
-                .add(sender, vote)
+            self.votes.get_mut(&height).unwrap().add(sender, sign_vote)
         } else {
             let mut round_votes = RoundCollector::new();
-            round_votes.add( sender, vote);
+            round_votes.add(sender, sign_vote);
             self.votes.insert(height, round_votes);
             true
         }
@@ -75,8 +68,7 @@ impl RoundCollector {
         }
     }
 
-    pub fn add(&mut self,sender: Address, sign_vote: &SignedFollowerVote) -> bool {
-        
+    pub fn add(&mut self, sender: Address, sign_vote: &SignedFollowerVote) -> bool {
         let round = sign_vote.vote.round;
         let step = sign_vote.vote.step;
 
@@ -84,10 +76,10 @@ impl RoundCollector {
             self.round_votes
                 .get_mut(&round)
                 .unwrap()
-                .add(step, sender, &sign_vote)
+                .add(sender, &sign_vote)
         } else {
             let mut step_votes = StepCollector::new();
-            step_votes.add(step, sender, &sign_vote);
+            step_votes.add(sender, &sign_vote);
             self.round_votes.insert(round, step_votes);
             true
         }
@@ -144,15 +136,15 @@ impl VoteSet {
     }
 
     //just add ,not check
-    pub fn add(&mut self, sender: Address, vote: &SignedFollowerVote) -> bool {
+    pub fn add(&mut self, sender: Address, sign_vote: &SignedFollowerVote) -> bool {
         let mut added = false;
         self.votes_by_sender.entry(sender).or_insert_with(|| {
             added = true;
-            vote.to_owned()
+            sign_vote.to_owned()
         });
         if added {
             self.count += 1;
-            let hash = vote.proposal.unwrap_or_else(H256::default);
+            let hash = sign_vote.vote.hash.unwrap_or_else(H256::default);
             *self.votes_by_proposal.entry(hash).or_insert(0) += 1;
         }
         added
@@ -171,13 +163,13 @@ impl VoteSet {
             self.votes_by_sender,
             authorities
         );
-        for (sender, vote) in &self.votes_by_sender {
+        for (sender, sign_vote) in &self.votes_by_sender {
             if authorities.contains(sender) {
-                let msg = serialize(&(h, r, step, sender, vote.proposal)).unwrap();
-                let signature = &vote.signature;
+                let msg: Vec<u8> = sign_vote.vote.clone().into();
+                let signature = &sign_vote.sig;
                 if let Ok(pubkey) = signature.recover(&msg.crypt_hash()) {
                     if pubkey_to_address(&pubkey) == *sender {
-                        let hash = vote.proposal.unwrap_or_else(H256::default);
+                        let hash = sign_vote.vote.hash.unwrap_or_else(H256::default);
                         // inc the count of vote for hash
                         *votes_by_proposal.entry(hash).or_insert(0) += 1;
                     }

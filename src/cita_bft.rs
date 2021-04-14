@@ -28,7 +28,7 @@ use cita_logger::{debug, error, info, trace, warn};
 use crate::crypto::{pubkey_to_address, CreateKey, Sign, Signature, SIGNATURE_BYTES_LEN};
 use crate::message::{
     BftSvrMsg, BftToCtlMsg, CompactProposal, CompactSignedProposal, CtlBackBftMsg, FollowerVote,
-    SignedFollowerVote, Step, Vote,LeaderVote,VoteMsgType
+    LeaderVote, SignedFollowerVote, Step, Vote, VoteMsgType,
 };
 use crate::types::{Address, H256};
 use cita_cloud_proto::common::ProposalWithProof;
@@ -56,7 +56,6 @@ const TIMEOUT_LOW_ROUND_FEED_MULTIPLE: u32 = 23;
 const DEFAULT_TIME_INTERVAL: u64 = 3000;
 const TIMESTAMP_JUDGE_BLOCK_INTERVAL: u64 = 200;
 const TIMESTAMP_DIFF_MAX_INTERVAL: u64 = 3000;
-
 
 pub type TransType = (String, Vec<u8>);
 pub type PubType = (String, Vec<u8>);
@@ -283,7 +282,7 @@ impl Bft {
         }
     }
 
-    async fn send_raw_net_msg<T: Into<Vec<u8>>>(&self, rtype: &str, origin: u64, msg: T) {
+    fn send_raw_net_msg<T: Into<Vec<u8>>>(&self, rtype: &str, origin: u64, msg: T) {
         let net_msg = NetworkMsg {
             module: "consensus".to_owned(),
             r#type: rtype.to_string(),
@@ -362,49 +361,40 @@ impl Bft {
 
     fn follower_proc_prevote(&mut self, height: u64, round: u64, hash: H256) -> bool {
         trace!("Follower proc prevote hash {:?} self {:?}", hash, self);
-       
+
         let old_lock_round = self.unlock_polc(round);
 
-        let vote_set = self.votes.get_voteset(height, round, Step::Prevote);
-        if let Some(vset) = vote_set {
-            if !hash.is_zero() {
-                // Try effort to find real proposal block
-                if self.proposal != Some(hash) {
-                    warn!(
-                        "Follower proc prevote proposal {:?} not equal hash {:?} lock_round {:?}",
-                        self.proposal,hash,old_lock_round
-                    );
-                    if !self.search_history_proposal(
+        if !hash.is_zero() {
+            // Try effort to find real proposal block
+            if self.proposal != Some(hash) {
+                warn!(
+                    "Follower proc prevote proposal {:?} not equal hash {:?} lock_round {:?}",
+                    self.proposal, hash, old_lock_round
+                );
+                if self.search_history_proposal(height, old_lock_round.unwrap_or(round), hash) {
+                    self.proposal = Some(hash);
+                }
+            }
+
+            if self.proposal == Some(hash) {
+                debug!("Follower proc prevoted proposal {:?} ", self.proposal);
+                self.lock_round = Some(round);
+
+                if self.pre_proc_precommit() {
+                    self.change_state_step(height, round, Step::PrecommitWait);
+                    self.wal_save_state_step(height, round, Step::PrecommitWait);
+                    self.set_state_timeout(
                         height,
-                        old_lock_round.unwrap_or(round),
-                        hash,
-                    ) {
-                        self.proposal = Some(hash);
+                        round,
+                        Step::PrecommitWait,
+                        self.proposal_interval_round_multiple(round),
+                    );
+
+                    if let Some(hash) = self.check_saved_vote(height, round, Step::Precommit) {
+                        self.follower_proc_precommit(height, round, Some(hash));
                     }
                 }
-
-                if self.proposal == Some(hash) {
-                    debug!("Follower proc prevoted proposal {:?} ", self.proposal);
-                    self.lock_round = Some(round);
-
-                    if self.pre_proc_precommit() {
-                        self.change_state_step(height, round, Step::PrecommitWait);
-                        self.wal_save_state_step(height, round, Step::PrecommitWait);
-                        self.set_state_timeout(
-                            height,
-                            round,
-                            Step::PrecommitWait,
-                            self.proposal_interval_round_multiple(round),
-                        );
-
-                        if let Some(hash) =
-                            self.check_saved_vote(height, round, Step::Precommit)
-                        {
-                            self.follower_proc_precommit(height, round, Some(hash));
-                        }
-                    }
-                    return true;
-                }
+                return true;
             }
         }
 
@@ -485,7 +475,6 @@ impl Bft {
     }
 
     fn search_history_proposal(&mut self, _height: u64, _round: u64, checked_hash: H256) -> bool {
-
         self.hash_proposals.contains_key(&checked_hash)
 
         // if let Some(proposal) = self.proposals.get_proposal(height, round) {
@@ -512,30 +501,29 @@ impl Bft {
         // false
     }
 
-    fn leader_proc_prevote(&mut self, net_msg :&NetworkMsg) -> bool {
-        let sign_vote = deserialize(&net_msg.msg);
-        if sign_vote.is_err() {
-            return false;
-        }
-        let sign_vote : SignedFollowerVote = sign_vote.unwrap();
-        let height = sign_vote.vote.height;
-        let round = sign_vote.vote.round;
+    fn leader_proc_prevote(&mut self, height: u64, round: u64, _hash: Option<H256>) -> bool {
+        // let sign_vote = deserialize(&net_msg.msg);
+        // if sign_vote.is_err() {
+        //     return false;
+        // }
+        // let sign_vote : SignedFollowerVote = sign_vote.unwrap();
+        // let height = sign_vote.vote.height;
+        // let round = sign_vote.vote.round;
 
-        debug!(
-            "Leader proc prevote {} begin h: {}, r: {}",
-            self, height, round
-        );
+        // debug!(
+        //     "Leader proc prevote {} begin h: {}, r: {}",
+        //     self, height, round
+        // );
         if self.check_vote_over_period(height, round, Step::PrevoteWait) {
             return false;
         }
-    
+
         let vote_set = self.votes.get_voteset(height, round, Step::Prevote);
         trace!("Leader proc prevote {} vote_set: {:?}", self, vote_set);
         if let Some(vote_set) = vote_set {
             if self.is_above_threshold(vote_set.count) {
                 let mut vote_one_flag = false;
                 let mut next_flag = false;
-                let mut addrs = Vec::new();
 
                 for (hash, count) in &vote_set.votes_by_proposal {
                     if self.is_above_threshold(*count) {
@@ -546,14 +534,13 @@ impl Bft {
                             self.clean_proposal_locked_info();
                             next_flag = true;
                         } else {
-
                             //let fvote = FollowerVote
                             if self.proposal != Some(*hash) {
                                 warn!(
                                     "Leader proc prevote proposal {:?} not equal hash {:?} lock_round {:?}",
                                     self.proposal,hash,old_lock_round
                                 );
-                                if !self.search_history_proposal(
+                                if self.search_history_proposal(
                                     height,
                                     old_lock_round.unwrap_or(round),
                                     *hash,
@@ -576,9 +563,8 @@ impl Bft {
                     }
                 }
                 if vote_one_flag {
-                    
                     //to be fix
-                   // let _ = self.wal_save_message(height, LogType::QuorumVotes, &vmsg);
+                    // let _ = self.wal_save_message(height, LogType::QuorumVotes, &vmsg);
                     self.pub_leader_message(height, round, Step::Prevote, self.proposal);
                     self.add_leader_self_vote(height, round, Step::Precommit, self.proposal);
                     //self.add_leader_self_vote(height, round, Step::Prevote, self.proposal);
@@ -659,10 +645,6 @@ impl Bft {
                             self.new_round_start(height, round + 1);
                         } else if self.proposal == Some(*hash) {
                             self.last_commit_round = Some(round);
-                            let vmsg =
-                                serialize(&(height, round, Step::Precommit, *hash, &vote_set))
-                                    .unwrap();
-                            let _ = self.wal_save_message(height, LogType::QuorumVotes, &vmsg);
                             trace!("leader proc precommit is hash {:?}", hash);
                             self.pub_leader_message(height, round, Step::Precommit, Some(*hash));
                             self.do_commit_work(height, round);
@@ -674,7 +656,6 @@ impl Bft {
                             self.pub_leader_message(height, round, Step::Precommit, None);
                             self.new_round_start(height, round + 1);
                         }
-
                         break;
                     }
                 }
@@ -726,26 +707,8 @@ impl Bft {
 
         trace!("pre proc precommit begin {}", self);
 
-        if let Some(lround) = self.lock_round {
-            if lround == round {
-                lock_ok = true;
-            }
-        }
-        let verify_result = self.get_proposal_verified_result(height, round);
-
-        trace!(
-            "pre proc precommit {} locked round {:?} verify result {:?}",
-            self,
-            self.lock_round,
-            verify_result
-        );
-
-        //polc is ok,but not verified , not send precommit
-        if lock_ok && verify_result.is_init() {
-            return false;
-        }
-
-        if lock_ok && verify_result.is_ok() {
+        let lock_ok = self.lock_round.map_or(false, |lround| lround == round);
+        if lock_ok {
             self.pub_follower_message(height, round, Step::Precommit, self.proposal);
         } else {
             self.pub_follower_message(height, round, Step::Precommit, Some(H256::default()));
@@ -910,7 +873,7 @@ impl Bft {
                     }
                     if sign_vote.vote.hash.unwrap() == hash {
                         num += 1;
-                        commits.insert(*sender, sign_vote.signature.clone());
+                        commits.insert(*sender, sign_vote.sig.clone());
                     }
                 }
             }
@@ -1046,56 +1009,49 @@ impl Bft {
         self.send_raw_net_msg(VoteMsgType::Prevote.into(), 0, sv);
     }
 
-    fn collect_votes(vote_set: &VoteSet,hash:H256) ->Vec<SignedFollowerVote> {
+    fn collect_votes(vote_set: &VoteSet, hash: H256) -> Vec<SignedFollowerVote> {
         let mut votes = Vec::new();
-        for (sender, sign_vote) in vote_set.votes_by_sender {
+        for (sender, sign_vote) in &vote_set.votes_by_sender {
             if let Some(phash) = sign_vote.vote.hash {
                 if phash != hash {
                     continue;
                 }
-                votes.push(sign_vote);
+                votes.push(sign_vote.to_owned());
             }
         }
+        votes
     }
 
     fn pub_leader_message(&mut self, height: u64, round: u64, step: Step, hash: Option<H256>) {
         let net_msg_type = {
             match step {
-                step::prevote => VoteMsgType::LeaderPrevote,
-                step::precommit => VoteMsgType::LeaderPrecommit,
+                Step::Prevote => VoteMsgType::LeaderPrevote,
+                Step::Precommit => VoteMsgType::LeaderPrecommit,
                 _ => VoteMsgType::Noop,
             }
         };
 
-        if  hash.is_some() && !hash.unwrap().is_zero() {
-                let hash = hash.unwrap();
-                let send_votes = self.votes.get_voteset(height, round, step)
-                .map(|vote_set| {
-                    Self::collect_votes(vote_set,hash)
-                 });
+        if hash.is_some() && !hash.unwrap().is_zero() {
+            let send_votes = self
+                .votes
+                .get_voteset(height, round, step)
+                .map(|vote_set| Self::collect_votes(&vote_set, hash.unwrap()));
 
-                 if let Some(votes) = send_votes {
-                    if self.is_above_threshold(send_votes.len() as u64) {
-                        let msg = serialize(&(height, round, step, Some(hash), send_votes)).unwrap();
-                        trace!(
-                            "Leader pub success aggregate msg hash {:?} len {} step {:?}",
-                            hash,
-                            msg.len(),
-                            step
-                        );
-                        self.pub_message(VoteType::LeaderAggregateVote, msg);
-
-                        let lv = LeaderVote {height,round,hash,votes};
-                        let lv_data:Vec<u8> = lv.into();
-                        self.wal_save_message(height, LogType::QuorumVotes, lv_data.clone());
-                        self.send_raw_net_msg(net_msg_type.into(), 0, lv_data)
-                    } else {
-                        error!(
-                            "Can't be here, Why vote is Not enough {:?}",
-                            send_votes.len()
-                        );
-                    }
-                 }
+            if let Some(votes) = send_votes {
+                if self.is_above_threshold(votes.len() as u64) {
+                    let lv = LeaderVote {
+                        height,
+                        round,
+                        hash,
+                        votes,
+                    };
+                    let lv_data: Vec<u8> = lv.into();
+                    self.wal_save_message(height, LogType::QuorumVotes, &lv_data);
+                    self.send_raw_net_msg(net_msg_type.into(), 0, lv_data)
+                } else {
+                    error!("Can't be here, Why vote is Not enough {:?}", votes.len());
+                }
+            }
         } else {
             self.send_raw_net_msg(net_msg_type.into(), 0, LeaderVote::default());
         }
@@ -1108,20 +1064,16 @@ impl Bft {
         step: Step,
         hash: Option<H256>,
     ) -> bool {
-
         let vote = FollowerVote {
             height,
             round,
             step,
             hash,
         };
-        let sig = self.sign_msg(vote);
+        let sig = self.sign_msg(vote.clone());
         self.votes.add(
             self.params.signer.address,
-            &SignedFollowerVote {
-                vote,
-                sig,
-            },
+            &SignedFollowerVote { vote, sig },
         )
     }
 
@@ -1167,14 +1119,14 @@ impl Bft {
 
     fn check_leader_message(
         &mut self,
-        step:Step,
+        step: Step,
         lvote: &LeaderVote,
-    ) -> Result<(u64,u64,H256), EngineError> {
+    ) -> Result<(u64, u64, H256), EngineError> {
         let h = lvote.height;
         let r = lvote.round;
 
         if lvote.hash.is_none() || lvote.hash.unwrap().is_zero() {
-            return Ok((h,r, H256::zero()));
+            return Ok((h, r, H256::zero()));
         }
 
         if h < self.height || (h == self.height && r < self.round) {
@@ -1185,12 +1137,15 @@ impl Bft {
             return Err(EngineError::NotAboveThreshold(lvote.votes.len()));
         }
 
-        for sign_vote in lvote.votes {
-            let sender = Self::design_message(vote.sig, sign_vote.vote);
+        for sign_vote in &lvote.votes {
+            let sender = Self::design_message(sign_vote.sig.clone(), sign_vote.vote.clone());
             if !self.is_validator(&sender) {
                 return Err(EngineError::NotAuthorized(sender));
             }
-            if sign_vote.vote.height!=h || sign_vote.vote.round!=r || sign_vote.vote.hash != lvote.hash {
+            if sign_vote.vote.height != h
+                || sign_vote.vote.round != r
+                || sign_vote.vote.hash != lvote.hash
+            {
                 return Err(EngineError::InvalidSignature);
             }
 
@@ -1202,17 +1157,15 @@ impl Bft {
                     round {}, \
                     step {}, \
                     sender {:?}, \
-                    hash {:?}", \
-                h, r, s, sender, lvote.hash);
-            
-            let ret = self.votes.add(
-                sender,
-                &sign_vote
+                    hash {:?}",
+                h, r, step, sender, lvote.hash
             );
-                if !ret {
-                    debug!("Vote messsage add failed");
-                    return Err(EngineError::DoubleVote(sender));
-                }
+
+            let ret = self.votes.add(sender, &sign_vote);
+            if !ret {
+                debug!("Vote messsage add failed");
+                return Err(EngineError::DoubleVote(sender));
+            }
         }
         return Ok((h, r, lvote.hash.unwrap()));
     }
@@ -1276,7 +1229,7 @@ impl Bft {
                 h, r, step, sender, hash
             );
             // let ret = self.votes.add(
-                
+
             //     sender,
             //     &VoteMessage {
             //         proposal: hash,
@@ -1297,17 +1250,16 @@ impl Bft {
 
     fn follower_handle_message(
         &mut self,
-        step:Step,
+        step: Step,
         net_msg: &NetworkMsg,
-    ) -> Result<(u64,u64,H256), EngineError> {
-        let lvote : LeaderVote = deserialize(net_msg.msg).map_err(EngineError::ErrFormatted)?;
-        let ret = self.check_leader_message(step,lvote);
-        if let Ok((h, r,  hash)) = ret {
+    ) -> Result<(u64, u64, H256), EngineError> {
+        let lvote: LeaderVote = deserialize(&net_msg.msg).map_err(|_| EngineError::ErrFormatted)?;
+        let ret = self.check_leader_message(step, &lvote);
+        if let Ok((h, r, hash)) = ret {
             if h > self.height {
                 return Err(EngineError::VoteMsgForth(h as usize));
             }
-
-            self.wal_save_message(h, LogType::QuorumVotes, &lvote.into());
+            self.wal_save_message(h, LogType::QuorumVotes, &net_msg.msg);
             return Ok((h, r, hash));
         }
         Err(ret.err().unwrap())
@@ -1337,18 +1289,21 @@ impl Bft {
 
     fn leader_handle_message(
         &mut self,
-        fvote: &SignedFollowerVote,
-    ) -> Result<(), EngineError> {
-       let h = fvote.vote.height;
-       let r = fvote.vote.round;
-       let s = fvote.vote.step;
+        net_msg: &NetworkMsg,
+    ) -> Result<(u64, u64, Option<H256>), EngineError> {
+        let fvote: SignedFollowerVote =
+            deserialize(&net_msg.msg).map_err(|_| EngineError::ErrFormatted)?;
+
+        let h = fvote.vote.height;
+        let r = fvote.vote.round;
+        let s = fvote.vote.step;
 
         if h < self.height {
             return Err(EngineError::VoteMsgDelay(h as usize));
         }
-        let sender = Self::design_message(fvote.sig, fvote.vote);
-        if !self.is_validator(sender) {
-            return Err(EngineError::BadSignature());
+        let sender = Self::design_message(fvote.sig.clone(), fvote.vote.clone());
+        if !self.is_validator(&sender) {
+            return Err(EngineError::NotAuthorized(sender));
         }
 
         if self
@@ -1366,15 +1321,15 @@ impl Bft {
                      round {}, \
                      step {}, \
                      sender {:?}, \
-                     hash {:?}," 
-                    h, r, s, sender, fvote.vote.hash, 
+                     hash {:?}",
+                    h, r, s, sender, fvote.vote.hash,
                 );
-                let ret = self.votes.add(sender,fvote);
+                let ret = self.votes.add(sender, &fvote);
                 if ret {
                     if h > self.height {
                         return Err(EngineError::VoteMsgForth(h as usize));
                     }
-                    return Ok(());
+                    return Ok((h, r, fvote.vote.hash));
                 }
                 return Err(EngineError::DoubleVote(sender));
             }
@@ -1572,8 +1527,8 @@ impl Bft {
         false
     }
 
-    fn design_message<T: Into<Vec<u8>>>(signature:Signature,msg: &T) -> Address {
-        let msg :Vec<u8> = msg.into();
+    fn design_message<T: Into<Vec<u8>>>(signature: Signature, msg: T) -> Address {
+        let msg: Vec<u8> = msg.into();
         let hash = msg.crypt_hash();
         if let Ok(pubkey) = signature.recover(&hash) {
             return pubkey_to_address(&pubkey);
@@ -1592,7 +1547,7 @@ impl Bft {
 
         let height = sign_proposal.proposal.height;
         let round = sign_proposal.proposal.round;
-        let signature =sign_proposal.sig;
+        let signature = sign_proposal.sig;
         if signature.len() != SIGNATURE_BYTES_LEN {
             return Err(EngineError::InvalidSignature);
         }
@@ -1611,7 +1566,11 @@ impl Bft {
             return Err(EngineError::VoteMsgForth(round as usize));
         }
 
-        trace!("handle proposal {} hash {:?}", self, sign_proposal.proposal.vote_proposal.phash);
+        trace!(
+            "handle proposal {} hash {:?}",
+            self,
+            sign_proposal.proposal.vote_proposal.phash
+        );
 
         if height < self.height
             || (height == self.height && round < self.round)
@@ -1627,71 +1586,72 @@ impl Bft {
             return Err(EngineError::VoteMsgForth(round as usize));
         }
 
-        let sender = Self::design_message(signature, &sign_proposal.proposal);
+        let sender = Self::design_message(signature, sign_proposal.proposal.clone());
+        let ret = self.is_round_leader(height, round, &sender);
+        if !ret.unwrap_or(false) {
+            warn!("Handle proposal {},{:?} is not round leader ", self, sender);
+            return Err(EngineError::NotProposer(Mismatch {
+                expected: Address::default(),
+                found: sender,
+            }));
+        }
 
-            let ret = self.is_round_leader(height, round, &sender);
-            if !ret.unwrap_or(false) {
-                warn!("Handle proposal {},{:?} is not round leader ", self, sender);
-                return Err(EngineError::NotProposer(Mismatch {
-                    expected: Address::default(),
-                    found: sender,
-                }));
+        trace!(
+            "Handle proposal {} h: {}, r: {}, sender: {:?}",
+            self,
+            height,
+            round,
+            sender
+        );
+
+        // let compact_block = compact_proposal.clone().take_block();
+        // if !self.params.issue_nil_block
+        //     && compact_block.get_body().get_tx_hashes().is_empty()
+        // {
+        //     info!("Handle proposal {} get nil body", self);
+
+        //     if round > self.nil_round.1 {
+        //         self.nil_round.1 = round;
+        //         self.nil_round.0 += 1;
+        //     }
+
+        //     self.send_txlist_request(self.height - 1);
+        //     // TODO other error type
+        //     return Err(EngineError::NilProposal);
+        // }
+
+        self.verify_proposal_req(
+            sign_proposal.proposal.height,
+            sign_proposal.proposal.round,
+            sign_proposal.proposal.raw_proposal.clone(),
+        );
+        self.hash_proposals.insert(
+            sign_proposal.proposal.vote_proposal.phash.clone(),
+            sign_proposal.proposal.raw_proposal.clone(),
+        );
+
+        //self.leader_origins.insert((height, round), origin);
+        if (height == self.height && round >= self.round)
+            || (height > self.height
+                && height < self.height + self.auth_manage.validator_n() as u64 + 1)
+        {
+            if wal_flag {
+                self.wal_save_message(height, LogType::Propose, &net_msg.msg)
+                    .unwrap();
             }
-
-            trace!(
-                "Handle proposal {} h: {}, r: {}, sender: {:?}",
-                self,
-                height,
-                round,
-                sender
+            debug!(
+                "Handle proposal {} add proposal h: {}, r: {}",
+                self, height, round
             );
 
-            // let compact_block = compact_proposal.clone().take_block();
-            // if !self.params.issue_nil_block
-            //     && compact_block.get_body().get_tx_hashes().is_empty()
-            // {
-            //     info!("Handle proposal {} get nil body", self);
+            self.proposals
+                .add(height, round, sign_proposal.proposal.vote_proposal);
 
-            //     if round > self.nil_round.1 {
-            //         self.nil_round.1 = round;
-            //         self.nil_round.0 += 1;
-            //     }
-
-            //     self.send_txlist_request(self.height - 1);
-            //     // TODO other error type
-            //     return Err(EngineError::NilProposal);
-            // }
-
-            self.verify_proposal_req(
-                sign_proposal.proposal.height,
-                sign_proposal.proposal.round,
-                sign_proposal.proposal.raw_proposal.clone(),
-            );
-            self.hash_proposals
-                .insert(sign_proposal.proposal.vote_proposal, sign_proposal.proposal.raw_proposal);
-           
-            //self.leader_origins.insert((height, round), origin);
-            if (height == self.height && round >= self.round)
-                || (height > self.height
-                    && height < self.height + self.auth_manage.validator_n() as u64 + 1)
-            {
-                if wal_flag {
-                    self.wal_save_message(height, LogType::Propose, &net_msg.msg)
-                        .unwrap();
-                }
-                debug!(
-                    "Handle proposal {} add proposal h: {}, r: {}",
-                    self, height, round
-                );
-
-                self.proposals
-                    .add(height, round, sign_proposal.proposal.vote_proposal);
-
-                if height > self.height {
-                    return Err(EngineError::VoteMsgForth(height as usize));
-                }
-                return Ok((height, round));
+            if height > self.height {
+                return Err(EngineError::VoteMsgForth(height as usize));
             }
+            return Ok((height, round));
+        }
 
         Err(EngineError::UnexpectedMessage)
     }
@@ -1986,11 +1946,11 @@ impl Bft {
             || {},
             |hash| {
                 if hash.is_zero() {
-                    self.follower_proc_prevote(height, round, Some(hash));
+                    self.follower_proc_prevote(height, round, hash);
                 } else {
                     match vres {
                         VerifiedBlockStatus::Ok => {
-                            self.follower_proc_prevote(height, round, Some(hash));
+                            self.follower_proc_prevote(height, round, hash);
                         }
                         VerifiedBlockStatus::Init(_) => {
                             self.change_state_step(height, round, Step::PrecommitAuth);
@@ -2034,22 +1994,20 @@ impl Bft {
     // For clippy
     #[allow(clippy::cognitive_complexity)]
     pub fn process_network(&mut self, net_msg: NetworkMsg) {
-    
         match net_msg.r#type.as_str().into() {
             VoteMsgType::Proposal => {
                 let _res = self.handle_proposal(&net_msg, true);
             }
             VoteMsgType::Prevote => {
-                if self.leader_handle_message(&net_msg).is_ok() {
-                    self.leader_proc_prevote(net_msg);
+                if let Ok((h, r, hash)) = self.leader_handle_message(&net_msg) {
+                    self.leader_proc_prevote(h, r, hash);
                 }
             }
             VoteMsgType::Precommit => {}
             VoteMsgType::LeaderPrevote => {
-                if let Ok((h,r,hash))= self.follower_handle_message(Step::Prevote,&net_msg) {
-                    self.follower_proc_prevote(h,r,hash);
+                if let Ok((h, r, hash)) = self.follower_handle_message(Step::Prevote, &net_msg) {
+                    self.follower_proc_prevote(h, r, hash);
                 }
-                
             }
             VoteMsgType::LeaderPrecommit => {}
             _ => {}
@@ -2284,12 +2242,12 @@ impl Bft {
             delay
         );
         let now = Instant::now();
-        // let _ = self.timer_seter.send(TimeoutInfo {
-        //     timeval: now + delay,
-        //     height,
-        //     round,
-        //     step,
-        // });
+        let _ = self.bft_channels.to_timer_tx.send(TimeoutInfo {
+            timeval: now + delay,
+            height,
+            round,
+            step,
+        });
     }
 
     // fn receive_new_status(&mut self, status: &RichStatus) {
@@ -2659,7 +2617,7 @@ impl Bft {
                             }
 
                             for (sender, vote_msg) in locked_vote.votes_by_sender {
-                                self.votes.add(height, round, step, sender, &vote_msg);
+                                self.votes.add(sender, &vote_msg);
                             }
                         } else {
                             self.set_proposal_and_block(None, None);
@@ -2713,7 +2671,7 @@ impl Bft {
                                     validators.push(Address::from(&v[..]));
                                 }
                                 self.auth_manage.receive_authorities_list(
-                                                // this tob fixed 
+                                                // this tob fixed
                                                 self.height as usize,
                                                 &validators,
                                                 &validators,

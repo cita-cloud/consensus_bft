@@ -110,7 +110,7 @@ impl Into<Vec<u8>> for CompactProposal {
     }
 }
 
-enum VoteMsgType {
+pub enum VoteMsgType {
     Noop,
     Proposal,
     Prevote,
@@ -183,13 +183,12 @@ impl From<u8> for Step {
     }
 }
 
-
 impl ::std::fmt::Display for Step {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{:?}", *self)
     }
 }
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct FollowerVote {
     pub height: u64,
     pub round: u64,
@@ -203,7 +202,7 @@ impl Into<Vec<u8>> for FollowerVote {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct SignedFollowerVote {
     pub vote: FollowerVote,
     pub sig: Signature,
@@ -219,7 +218,7 @@ impl Into<Vec<u8>> for SignedFollowerVote {
 pub struct LeaderVote {
     pub height: u64,
     pub round: u64,
-    pub hash:Option<H256>,
+    pub hash: Option<H256>,
     pub votes: Vec<SignedFollowerVote>,
 }
 
