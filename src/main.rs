@@ -15,6 +15,8 @@ use cita_logger as logger;
 use serde_derive;
 #[macro_use]
 use util;
+
+use util::{set_panic_handler,micro_service_init};
 use message::{BftSvrMsg, BftToCtlMsg, CtlBackBftMsg};
 
 use anyhow::Result;
@@ -30,12 +32,11 @@ use tokio::sync::mpsc;
 // use std::cmp::Ordering;
 // use std::{env, thread};
 
-use crate::cita_bft::{Bft, BftChannls, BftTurn};
+use crate::cita_bft::{Bft, BftChannls};
 use crate::params::{BftParams, PrivateKey};
 use crate::votetime::WaitTimer;
 use clap::Clap;
 use git_version::git_version;
-use util::set_panic_handler;
 
 use cita_cloud_proto::common::{Empty, Hash, ProposalWithProof, SimpleResponse};
 use cita_cloud_proto::consensus::consensus_service_server::ConsensusServiceServer;
@@ -302,6 +303,8 @@ struct RunOpts {
 #[tokio::main]
 async fn run(opts: RunOpts) {
     ::std::env::set_var("RUST_BACKTRACE", "full");
+    ::std::env::set_var("DATA_PATH", "./data/");
+    info!("start consensus bft");
 
     let buffer = std::fs::read_to_string("consensus-config.toml")
         .unwrap_or_else(|err| panic!("Error while loading config: [{}]", err));
@@ -363,7 +366,8 @@ async fn run(opts: RunOpts) {
 }
 
 fn main() {
-    ::std::env::set_var("RUST_BACKTRACE", "full");
+    micro_service_init!("consensus_bft", "CITA-CLOUD:consensus:bft", false);
+
     let opts: Opts = Opts::parse();
     // You can handle information about subcommands by requesting their matches by name
     // (as below), requesting just the name used, or both at the same time

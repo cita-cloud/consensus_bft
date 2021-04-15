@@ -51,38 +51,38 @@ impl Into<Vec<u8>> for Vote {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
-pub struct CompactSignedProposal {
-    pub proposal: CompactProposal,
+pub struct SignedNetworkProposal {
+    pub proposal: NetworkProposal,
     pub sig: Signature,
 }
 
-impl CompactSignedProposal {
+impl SignedNetworkProposal {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn set(&mut self, proposal: CompactProposal, sig: Signature) {
+    pub fn set(&mut self, proposal: NetworkProposal, sig: Signature) {
         self.proposal = proposal;
         self.sig = sig;
     }
 }
 
-impl Into<Vec<u8>> for CompactSignedProposal {
+impl Into<Vec<u8>> for SignedNetworkProposal {
     fn into(self) -> Vec<u8> {
         bincode::serialize(&self).unwrap()
     }
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
-pub struct CompactProposal {
+pub struct NetworkProposal {
     pub height: u64,
     pub round: u64,
     pub vote_proposal: Proposal,
     pub raw_proposal: Vec<u8>,
 }
 
-impl CompactProposal {
+impl NetworkProposal {
     pub fn new(h: u64, r: u64, raw: Vec<u8>) -> Self {
-        let mut cp = CompactProposal::default();
+        let mut cp = NetworkProposal::default();
         cp.height = h;
         cp.round = r;
         let phash = raw.crypt_hash();
@@ -92,7 +92,7 @@ impl CompactProposal {
     }
 
     pub fn new_with_proposal(h: u64, r: u64, p: Proposal) -> Self {
-        let mut cp = CompactProposal::default();
+        let mut cp = NetworkProposal::default();
         cp.height = h;
         cp.round = r;
         cp.vote_proposal = p;
@@ -104,7 +104,7 @@ impl CompactProposal {
     }
 }
 
-impl Into<Vec<u8>> for CompactProposal {
+impl Into<Vec<u8>> for NetworkProposal {
     fn into(self) -> Vec<u8> {
         bincode::serialize(&self).unwrap()
     }
@@ -115,6 +115,7 @@ pub enum VoteMsgType {
     Proposal,
     Prevote,
     Precommit,
+    NewView,
     LeaderPrevote,
     LeaderPrecommit,
 }
@@ -125,6 +126,7 @@ impl From<&str> for VoteMsgType {
             "proposal" => Self::Proposal,
             "prevote" => Self::Prevote,
             "precommit" => Self::Precommit,
+            "newview" => Self::NewView,
             "lprevote" => Self::LeaderPrevote,
             "lprecommit" => Self::LeaderPrecommit,
             _ => Self::Noop,
@@ -140,6 +142,7 @@ impl Into<&str> for VoteMsgType {
             Self::Precommit => "precommit",
             Self::LeaderPrevote => "lprevote",
             Self::LeaderPrecommit => "lprecommit",
+            Self::NewView => "newview",
             Self::Noop => "noop",
         }
     }
@@ -151,10 +154,10 @@ pub enum Step {
     ProposeWait = 1,
     Prevote = 2,
     PrevoteWait = 3,
-    PrecommitAuth = 4,
-    Precommit = 5,
-    PrecommitWait = 6,
-    Commit = 7,
+    Precommit = 4,
+    PrecommitWait = 5,
+    Commit = 6,
+    CommitPending = 7,
     CommitWait = 8,
     NewView = 9,
 }
@@ -172,10 +175,10 @@ impl From<u8> for Step {
             1 => Step::ProposeWait,
             2 => Step::Prevote,
             3 => Step::PrevoteWait,
-            4 => Step::PrecommitAuth,
-            5 => Step::Precommit,
-            6 => Step::PrecommitWait,
-            7 => Step::Commit,
+            4 => Step::Precommit,
+            5 => Step::PrecommitWait,
+            6 => Step::Commit,
+            7 => Step::CommitPending,
             8 => Step::CommitWait,
             9 => Step::NewView,
             _ => panic!("Invalid step."),

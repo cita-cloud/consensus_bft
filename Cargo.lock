@@ -243,40 +243,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cita-bft"
-version = "1.4.2"
-dependencies = [
- "anyhow",
- "authority_manage",
- "bincode 1.3.2",
- "cita-crypto",
- "cita-directories",
- "cita-logger",
- "cita-types",
- "cita_cloud_proto",
- "clap",
- "crossbeam",
- "dotenv",
- "engine",
- "ethereum-types 0.11.0",
- "git-version",
- "hashable",
- "lru-cache",
- "min-max-heap",
- "proof",
- "prost",
- "protobuf",
- "rustc-hex 1.0.0",
- "serde",
- "serde_derive",
- "time",
- "tokio",
- "toml 0.5.8",
- "tonic",
- "util",
-]
-
-[[package]]
 name = "cita-crypto"
 version = "0.1.0"
 source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
@@ -433,6 +399,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddfc5b9aa5d4507acaf872de71051dfd0e309860e88966e1051e462a077aac4f"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "consensus_bft"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "authority_manage",
+ "bincode 1.3.2",
+ "cita-crypto",
+ "cita-directories",
+ "cita-logger",
+ "cita-types",
+ "cita_cloud_proto",
+ "clap",
+ "crossbeam",
+ "dotenv",
+ "engine",
+ "ethereum-types 0.11.0",
+ "git-version",
+ "hashable",
+ "lru-cache",
+ "min-max-heap",
+ "proof",
+ "prost",
+ "protobuf",
+ "rustc-hex 1.0.0",
+ "serde",
+ "serde_derive",
+ "time",
+ "tokio",
+ "toml 0.5.8",
+ "tonic",
+ "util",
 ]
 
 [[package]]
