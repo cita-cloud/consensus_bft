@@ -125,6 +125,7 @@ impl BftToCtl {
             }
             debug!("Retrying to connect controller");
         };
+        info!("connecting to controller success");
         client
     }
 

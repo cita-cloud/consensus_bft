@@ -1594,7 +1594,9 @@ impl Bft {
 
         match tminfo.step {
             Step::Propose => {}
-            Step::ProposeAuth => {}
+            Step::ProposeAuth => {
+                self.send_proposal_request();
+            }
             Step::ProposeWait | Step::PrevoteWait | Step::PrecommitWait => {
                 let step = {
                     if tminfo.step == Step::PrecommitWait {
@@ -2053,6 +2055,7 @@ impl Bft {
 
                                 if self.is_validator(&self.params.signer.address) {
                                     self.is_consensus_node = true;
+                                    self.send_proposal_request();
                                 } else {
                                     self.is_consensus_node = false;
                                 }
