@@ -38,7 +38,9 @@ use crate::votetime::WaitTimer;
 use clap::Clap;
 use git_version::git_version;
 
-use cita_cloud_proto::common::{Empty, Hash, ProposalWithProof, SimpleResponse};
+use cita_cloud_proto::common::{
+    Empty, Hash, Proposal as ProtoProposal, ProposalWithProof, SimpleResponse,
+};
 use cita_cloud_proto::consensus::consensus_service_server::ConsensusServiceServer;
 use cita_cloud_proto::consensus::{
     consensus_service_server::ConsensusService, ConsensusConfiguration,
@@ -136,23 +138,23 @@ impl BftToCtl {
                     let response = client
                         .get_proposal(request)
                         .await
-                        .map(|resp| resp.into_inner().hash);
+                        .map(|resp| resp.into_inner());
                     //.map_err(|e| e.into());
                     if let Ok(res) = response {
-                        let msg = CtlBackBftMsg::GetProposalRes(res);
+                        let msg = CtlBackBftMsg::GetProposalRes(res.height, res.data);
                         b2c.back_bft_tx.send(msg).unwrap();
                     }
                 }
 
-                BftToCtlMsg::CheckProposalReq(h, r, raw) => {
-                    let request = tonic::Request::new(Hash { hash: raw });
+                BftToCtlMsg::CheckProposalReq(height, r, raw) => {
+                    let request = tonic::Request::new(ProtoProposal { height, data: raw });
                     let response = client
                         .check_proposal(request)
                         .await
                         .map(|resp| resp.into_inner().is_success);
                     //.map_err(|e| e.into());
                     if let Ok(res) = response {
-                        let msg = CtlBackBftMsg::CheckProposalRes(h, r, res);
+                        let msg = CtlBackBftMsg::CheckProposalRes(height, r, res);
                         b2c.back_bft_tx.send(msg).unwrap();
                     }
                 }
@@ -358,7 +360,7 @@ async fn run(opts: RunOpts) {
 
     let addr_str = format!("127.0.0.1:{}", opts.grpc_port);
     let addr = addr_str.parse().unwrap();
-    Server::builder()
+    let _ = Server::builder()
         .add_service(ConsensusServiceServer::new(bft_svr))
         .add_service(NetworkMsgHandlerServiceServer::new(n2b))
         .serve(addr)
