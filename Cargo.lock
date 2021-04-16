@@ -100,7 +100,7 @@ dependencies = [
 [[package]]
 name = "authority_manage"
 version = "0.1.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "bincode 0.8.0",
  "cita-types",
@@ -160,6 +160,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bit-vec"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02b4ff8b16e6076c3e14220b39fbc1fabb6737522281a388998046859400895f"
+
+[[package]]
 name = "bitflags"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -178,10 +184,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "bumpalo"
-version = "3.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63396b8a4b9de3f4fdfb320ab6080762242f66a8ef174c49d8e19b674db4cdbe"
+name = "blake2b"
+version = "0.1.0"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "byte-slice-cast"
@@ -245,7 +253,7 @@ dependencies = [
 [[package]]
 name = "cita-crypto"
 version = "0.1.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "cita-crypto-trait",
  "cita-ed25519",
@@ -256,7 +264,7 @@ dependencies = [
 [[package]]
 name = "cita-crypto-trait"
 version = "0.1.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "cita-types",
 ]
@@ -264,7 +272,7 @@ dependencies = [
 [[package]]
 name = "cita-directories"
 version = "0.1.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "uuid",
 ]
@@ -272,7 +280,7 @@ dependencies = [
 [[package]]
 name = "cita-ed25519"
 version = "0.6.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "cita-crypto-trait",
  "cita-types",
@@ -300,7 +308,7 @@ dependencies = [
 [[package]]
 name = "cita-merklehash"
 version = "0.1.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "cita-types",
  "hashable",
@@ -311,7 +319,7 @@ dependencies = [
 [[package]]
 name = "cita-secp256k1"
 version = "0.6.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "cita-crypto-trait",
  "cita-types",
@@ -327,24 +335,21 @@ dependencies = [
 [[package]]
 name = "cita-sm2"
 version = "0.1.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "cita-crypto-trait",
  "cita-types",
  "hashable",
- "hex 0.3.2",
- "libsm 0.3.0 (git+https://github.com/citahub/libsm?branch=smx)",
- "ring",
+ "libsm",
  "rlp 0.2.0",
  "rustc-serialize",
  "serde",
- "untrusted",
 ]
 
 [[package]]
 name = "cita-types"
 version = "0.1.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "ethereum-types 0.4.2",
  "plain_hasher",
@@ -594,7 +599,7 @@ dependencies = [
 [[package]]
 name = "engine"
 version = "0.6.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "cita-crypto",
  "cita-types",
@@ -860,11 +865,11 @@ dependencies = [
 [[package]]
 name = "hashable"
 version = "0.1.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
+ "blake2b",
  "cita-types",
- "libsm 0.3.0 (git+https://github.com/citahub/libsm)",
- "libsodium-sys",
+ "libsm",
  "tiny-keccak 1.5.0",
 ]
 
@@ -900,12 +905,6 @@ checksum = "322f4de77956e22ed0e5032c359a0f1273f1f7f0d79bfa3b8ffbc730d7fbcc5c"
 dependencies = [
  "libc",
 ]
-
-[[package]]
-name = "hex"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "805026a5d0141ffc30abb3be3173848ad46a1b1664fe632428479619a3644d77"
 
 [[package]]
 name = "hex"
@@ -1062,15 +1061,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd25036021b0de88a0aff6b850051563c6516d0bf53f8638938edbb9de732736"
 
 [[package]]
-name = "js-sys"
-version = "0.3.50"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d99f9e3e84b8f67f846ef5b4cbbc3b1c29f6c759fcbce6f01aa0e73d932a24c"
-dependencies = [
- "wasm-bindgen",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1100,7 +1090,7 @@ dependencies = [
 [[package]]
 name = "libproto"
 version = "0.6.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "cita-crypto",
  "cita-logger",
@@ -1118,21 +1108,7 @@ dependencies = [
 [[package]]
 name = "libsm"
 version = "0.3.0"
-source = "git+https://github.com/citahub/libsm?branch=master#66562196c3aa6a2f3db6fbf21e593521eadc2ae7"
-dependencies = [
- "byteorder",
- "lazy_static",
- "num-bigint",
- "num-integer",
- "num-traits 0.2.14",
- "rand 0.4.6",
- "yasna",
-]
-
-[[package]]
-name = "libsm"
-version = "0.3.0"
-source = "git+https://github.com/citahub/libsm?branch=smx#4e1284d194628607fcec3e72121dc080fbaf1f30"
+source = "git+https://github.com/citahub/libsm?rev=4d0e6199fca0934c58131de1d0036e9aa4da26c1#4d0e6199fca0934c58131de1d0036e9aa4da26c1"
 dependencies = [
  "byteorder",
  "lazy_static",
@@ -1336,14 +1312,39 @@ dependencies = [
 ]
 
 [[package]]
-name = "num-bigint"
-version = "0.2.6"
+name = "num"
+version = "0.1.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "090c7f9998ee0ff65aa5b723e4009f7b217707f1fb5ea551329cc4d6231fb304"
+checksum = "4703ad64153382334aa8db57c637364c322d3372e097840c72000dabdcf6156e"
 dependencies = [
- "autocfg 1.0.1",
+ "num-bigint",
+ "num-complex",
+ "num-integer",
+ "num-iter",
+ "num-rational",
+ "num-traits 0.2.14",
+]
+
+[[package]]
+name = "num-bigint"
+version = "0.1.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e63899ad0da84ce718c14936262a41cee2c79c981fc0a0e7c7beb47d5a07e8c1"
+dependencies = [
  "num-integer",
  "num-traits 0.2.14",
+ "rand 0.4.6",
+ "rustc-serialize",
+]
+
+[[package]]
+name = "num-complex"
+version = "0.1.43"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b288631d7878aaf59442cffd36910ea604ecd7745c36054328595114001c9656"
+dependencies = [
+ "num-traits 0.2.14",
+ "rustc-serialize",
 ]
 
 [[package]]
@@ -1354,6 +1355,29 @@ checksum = "d2cc698a63b549a70bc047073d2949cce27cd1c7b0a4a862d08a8031bc2801db"
 dependencies = [
  "autocfg 1.0.1",
  "num-traits 0.2.14",
+]
+
+[[package]]
+name = "num-iter"
+version = "0.1.42"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2021c8337a54d21aca0d59a92577a029af9431cb59b909b03252b9c164fad59"
+dependencies = [
+ "autocfg 1.0.1",
+ "num-integer",
+ "num-traits 0.2.14",
+]
+
+[[package]]
+name = "num-rational"
+version = "0.1.42"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee314c74bd753fc86b4780aa9475da469155f3848473a261d2d18e35245a784e"
+dependencies = [
+ "num-bigint",
+ "num-integer",
+ "num-traits 0.2.14",
+ "rustc-serialize",
 ]
 
 [[package]]
@@ -1629,7 +1653,7 @@ dependencies = [
 [[package]]
 name = "proof"
 version = "0.6.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "bincode 0.8.0",
  "cita-crypto",
@@ -1945,28 +1969,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "ring"
-version = "0.16.15"
-source = "git+https://github.com/Pencil-Yao/ring?branch=smx#80a59d8229606f209b56c644e80258b1008d9f40"
-dependencies = [
- "cc",
- "hex 0.3.2",
- "lazy_static",
- "libc",
- "libsm 0.3.0 (git+https://github.com/citahub/libsm?branch=smx)",
- "num-bigint",
- "num-traits 0.2.14",
- "once_cell",
- "spin",
- "untrusted",
- "web-sys",
- "winapi",
-]
-
-[[package]]
 name = "rlp"
 version = "0.2.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "byteorder",
  "cita-types",
@@ -2038,21 +2043,12 @@ checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
 
 [[package]]
 name = "secp256k1"
-version = "0.17.2"
+version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2932dc07acd2066ff2e3921a4419606b220ba6cd03a9935123856cc534877056"
-dependencies = [
- "rand 0.6.5",
- "secp256k1-sys",
-]
-
-[[package]]
-name = "secp256k1-sys"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ab2c26f0d3552a0f12e639ae8a64afc2e3db9c52fe32f5fc6c289d38519f220"
+checksum = "4d311229f403d64002e9eed9964dfa5a0a0c1ac443344f7546bf48e916c6053a"
 dependencies = [
  "cc",
+ "rand 0.6.5",
 ]
 
 [[package]]
@@ -2166,7 +2162,7 @@ checksum = "fe0f37c9e8f3c5a4a66ad655a93c74daac4ad00c441533bf5c6e7990bb42604e"
 [[package]]
 name = "snappy"
 version = "0.1.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "libc",
 ]
@@ -2191,12 +2187,6 @@ dependencies = [
  "libsodium-sys",
  "serde",
 ]
-
-[[package]]
-name = "spin"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
 name = "stable_deref_trait"
@@ -2568,7 +2558,7 @@ checksum = "e11fe9a9348741cf134085ad57c249508345fe16411b3d7fb4ff2da2f1d6382e"
 dependencies = [
  "byteorder",
  "crunchy 0.2.2",
- "hex 0.4.3",
+ "hex",
  "static_assertions",
 ]
 
@@ -2618,12 +2608,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "untrusted"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a156c684c91ea7d62626509bce3cb4e1d9ed5c4d978f7b4352658f96a4c26b4a"
-
-[[package]]
 name = "url"
 version = "1.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2637,7 +2621,7 @@ dependencies = [
 [[package]]
 name = "util"
 version = "0.6.0"
-source = "git+ssh://git.rivtower.com/cita/cita-common.git?branch=develop#013b2ec9eb4f46e028bc7eeb5942c9e7f0b98ee7"
+source = "git+https://github.com/citahub/cita-common.git?branch=develop#5acb4259e4398403ede0faf2b464b15c66b87e8c"
 dependencies = [
  "ansi_term",
  "backtrace",
@@ -2693,70 +2677,6 @@ name = "wasi"
 version = "0.10.2+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd6fbd9a79829dd1ad0cc20627bf1ed606756a7f77edff7b66b7064f9cb327c6"
-
-[[package]]
-name = "wasm-bindgen"
-version = "0.2.73"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83240549659d187488f91f33c0f8547cbfef0b2088bc470c116d1d260ef623d9"
-dependencies = [
- "cfg-if 1.0.0",
- "wasm-bindgen-macro",
-]
-
-[[package]]
-name = "wasm-bindgen-backend"
-version = "0.2.73"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae70622411ca953215ca6d06d3ebeb1e915f0f6613e3b495122878d7ebec7dae"
-dependencies = [
- "bumpalo",
- "lazy_static",
- "log",
- "proc-macro2",
- "quote",
- "syn",
- "wasm-bindgen-shared",
-]
-
-[[package]]
-name = "wasm-bindgen-macro"
-version = "0.2.73"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e734d91443f177bfdb41969de821e15c516931c3c3db3d318fa1b68975d0f6f"
-dependencies = [
- "quote",
- "wasm-bindgen-macro-support",
-]
-
-[[package]]
-name = "wasm-bindgen-macro-support"
-version = "0.2.73"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d53739ff08c8a68b0fdbcd54c372b8ab800b1449ab3c9d706503bc7dd1621b2c"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
- "wasm-bindgen-backend",
- "wasm-bindgen-shared",
-]
-
-[[package]]
-name = "wasm-bindgen-shared"
-version = "0.2.73"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9a543ae66aa233d14bb765ed9af4a33e81b8b58d1584cf1b47ff8cd0b9e4489"
-
-[[package]]
-name = "web-sys"
-version = "0.3.50"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a905d57e488fec8861446d3393670fb50d27a262344013181c2cdf9fff5481be"
-dependencies = [
- "js-sys",
- "wasm-bindgen",
-]
 
 [[package]]
 name = "which"
@@ -2816,9 +2736,10 @@ dependencies = [
 
 [[package]]
 name = "yasna"
-version = "0.3.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0de7bff972b4f2a06c85f6d8454b09df153af7e3a4ec2aac81db1b105b684ddb"
+checksum = "3a31ff5b5f5fcc70c5da4fcbdcbd91d541bb95b0b2517a3ca5cdc49fd3692cbb"
 dependencies = [
- "num-bigint",
+ "bit-vec",
+ "num",
 ]

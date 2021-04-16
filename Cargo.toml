@@ -12,18 +12,18 @@ serde_derive = "1.0"
 bincode = "1.3"
 
 cita-logger = "0.1.1"
-util = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
-cita-types = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+util = { git = "https://github.com/citahub/cita-common.git", branch = "develop" }
+cita-types = { git = "https://github.com/citahub/cita-common.git", branch = "develop" }
 
 ethereum-types = "0.11.0"
-cita-crypto = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
-hashable = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
-cita-directories = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
-proof = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+cita-crypto = { git = "https://github.com/citahub/cita-common.git", branch = "develop" }
+hashable = { git = "https://github.com/citahub/cita-common.git", branch = "develop" }
+cita-directories = { git = "https://github.com/citahub/cita-common.git", branch = "develop" }
+proof = { git = "https://github.com/citahub/cita-common.git", branch = "develop" }
 time = "0.1.36"
-engine = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+engine = { git = "https://github.com/citahub/cita-common.git", branch = "develop" }
 lru-cache = "0.1"
-authority_manage = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+authority_manage = { git = "https://github.com/citahub/cita-common.git", branch = "develop" }
 rustc-hex = "1.0"
 min-max-heap = "1.2.2"
 cita_cloud_proto = { path = "../cita_cloud_proto" }
@@ -39,7 +39,7 @@ git-version = "*"
 #lazy_static = "1.4"
 
 [build-dependencies]
-util = { git = "ssh://git.rivtower.com/cita/cita-common.git", branch = "develop" }
+util = { git = "https://github.com/citahub/cita-common.git", branch = "develop" }
 
 
 [features]

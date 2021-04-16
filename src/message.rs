@@ -150,16 +150,17 @@ impl Into<&str> for VoteMsgType {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Hash)]
 pub enum Step {
-    Propose = 0,
-    ProposeWait = 1,
-    Prevote = 2,
-    PrevoteWait = 3,
-    Precommit = 4,
-    PrecommitWait = 5,
-    Commit = 6,
-    CommitPending = 7,
-    CommitWait = 8,
-    NewView = 9,
+    Propose,
+    ProposeAuth,
+    ProposeWait,
+    Prevote,
+    PrevoteWait,
+    Precommit,
+    PrecommitWait,
+    Commit,
+    CommitPending,
+    CommitWait,
+    NewView,
 }
 
 impl Default for Step {
@@ -172,15 +173,16 @@ impl From<u8> for Step {
     fn from(s: u8) -> Step {
         match s {
             0 => Step::Propose,
-            1 => Step::ProposeWait,
-            2 => Step::Prevote,
-            3 => Step::PrevoteWait,
-            4 => Step::Precommit,
-            5 => Step::PrecommitWait,
-            6 => Step::Commit,
-            7 => Step::CommitPending,
-            8 => Step::CommitWait,
-            9 => Step::NewView,
+            1 => Step::ProposeAuth,
+            2 => Step::ProposeWait,
+            3 => Step::Prevote,
+            4 => Step::PrevoteWait,
+            5 => Step::Precommit,
+            6 => Step::PrecommitWait,
+            7 => Step::Commit,
+            8 => Step::CommitPending,
+            9 => Step::CommitWait,
+            10 => Step::NewView,
             _ => panic!("Invalid step."),
         }
     }

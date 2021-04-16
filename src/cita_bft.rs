@@ -61,7 +61,7 @@ pub type TransType = (String, Vec<u8>);
 pub type PubType = (String, Vec<u8>);
 type NilRound = (u64, u64);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum VerifiedProposalStatus {
     Ok,
     Err,
@@ -209,7 +209,7 @@ impl Bft {
         bft_channels: BftChannls,
     ) -> Bft {
         let logpath = DataPath::wal_path();
-        info!("start cita-bft log {}",logpath);
+        info!("start cita-bft log {}", logpath);
         Bft {
             // pub_sender: s,
             // timer_seter: ts,
@@ -607,14 +607,6 @@ impl Bft {
         n == self.auth_manage.validator_n() as u64
     }
 
-    fn get_proposal_verified_result(&self, height: u64, round: u64) -> VerifiedProposalStatus {
-        // self.unverified_msg
-        //     .get(&(height, round))
-        //     .map_or(VerifiedProposalStatus::Ok, |res| res.1)
-
-        VerifiedProposalStatus::Ok
-    }
-
     fn pre_proc_precommit(&mut self) -> bool {
         let height = self.height;
         let round = self.round;
@@ -628,15 +620,6 @@ impl Bft {
         } else {
             self.pub_follower_message(height, round, Step::Precommit, Some(H256::default()));
         }
-
-        // let now = Instant::now();
-        // //timeout for resending vote msg
-        // let _ = self.timer_seter.send(TimeoutInfo {
-        //     timeval: now + (self.params.timer.get_precommit() * TIMEOUT_RETRANSE_MULTIPLE),
-        //     height: self.height,
-        //     round: self.round,
-        //     step: Step::Precommit,
-        // });
         true
     }
 
@@ -714,12 +697,26 @@ impl Bft {
 
         if let Some(hash) = hash {
             if !hash.is_zero() {
+                if self.proposal != Some(hash) && self.search_history_proposal(hash) {
+                    self.proposal = Some(hash);
+                }
                 if self.proposal == Some(hash) {
                     self.last_commit_round = Some(round);
-
                     if let Some(vote_set) = self.votes.get_voteset(height, round, Step::Precommit) {
-                        let vmsg =
-                            serialize(&(height, round, Step::Precommit, hash, vote_set)).unwrap();
+                        let lv = Self::collect_votes(&vote_set, hash);
+                        if !self.is_above_threshold(lv.len() as u64) {
+                            warn!(" precommit vot not above threshold hash {:?}", hash);
+                            return false;
+                        }
+
+                        let vmsg: Vec<u8> = LeaderVote {
+                            height,
+                            round,
+                            hash: Some(hash),
+                            votes: lv,
+                        }
+                        .into();
+
                         let _ = self.wal_save_message(height, LogType::QuorumVotes, &vmsg);
                         //self.wal_save_state_step(height, round, Step::PrecommitWait);
                     }
@@ -801,7 +798,8 @@ impl Bft {
                     };
                     self.bft_channels
                         .to_ctl_tx
-                        .send(BftToCtlMsg::CommitBlock(pproof)).unwrap();
+                        .send(BftToCtlMsg::CommitBlock(pproof))
+                        .unwrap();
                     return true;
                 }
             }
@@ -1054,7 +1052,8 @@ impl Bft {
         step: Step,
         net_msg: &NetworkMsg,
     ) -> Result<(u64, u64, H256), EngineError> {
-        let lvote: LeaderVote = deserialize(&net_msg.msg).map_err(|_| EngineError::ErrFormatted)?;
+        let lvote: LeaderVote =
+            deserialize(&net_msg.msg).map_err(|_| EngineError::UnexpectedMessage)?;
         let ret = self.check_leader_message(step, &lvote);
         if let Ok((h, r, hash)) = ret {
             if h > self.height {
@@ -1090,7 +1089,7 @@ impl Bft {
 
     fn handle_newview(&mut self, net_msg: &NetworkMsg) -> Result<(u64, u64), EngineError> {
         let fvote: SignedFollowerVote =
-            deserialize(&net_msg.msg).map_err(|_| EngineError::ErrFormatted)?;
+            deserialize(&net_msg.msg).map_err(|_| EngineError::UnexpectedMessage)?;
 
         let h = fvote.vote.height;
         let r = fvote.vote.round;
@@ -1155,7 +1154,7 @@ impl Bft {
         net_msg: &NetworkMsg,
     ) -> Result<(u64, u64, Option<H256>), EngineError> {
         let fvote: SignedFollowerVote =
-            deserialize(&net_msg.msg).map_err(|_| EngineError::ErrFormatted)?;
+            deserialize(&net_msg.msg).map_err(|_| EngineError::UnexpectedMessage)?;
 
         let h = fvote.vote.height;
         let r = fvote.vote.round;
@@ -1214,7 +1213,7 @@ impl Bft {
     //             return self.uniform_handle_newview(&content[..]);
     //         }
     //     }
-    //     Err(EngineError::ErrFormatted)
+    //     Err(EngineError::UnexpectedMessage)
     // }
 
     fn follower_proc_proposal(&mut self, height: u64, round: u64) -> bool {
@@ -1248,17 +1247,6 @@ impl Bft {
                 let _ = self.wal_save_message(height, LogType::UnlockBlock, &msg);
                 self.clean_proposal_locked_info();
             }
-            // still lock on a blk,next prevote it
-            // if self.lock_round.is_some() {
-            //     let locked_block = self.locked_block.clone().unwrap();
-            //     self.set_proposal_and_block(Some(locked_block.crypt_hash()), Some(locked_block));
-            //     info!("Proc proposal still have locked block {:?}", self);
-            // } else {
-            //     // else use proposal block, self.lock_round is none
-            //     let compact_block = CompactBlock::try_from(&proposal.block).unwrap();
-            //     self.set_proposal_and_block(Some(compact_block.crypt_hash()), Some(compact_block));
-            //     debug!("Proc proposal save the proposal's hash {:?}", self);
-            // }
             self.proposal = Some(proposal.phash);
             return true;
         }
@@ -1270,25 +1258,6 @@ impl Bft {
         // self.proposal = hash;
         // self.locked_block = blk;
     }
-
-    // fn verify_version(&self, block: &CompactBlock) -> bool {
-    //     if self.version.is_none() {
-    //         warn!("Verify version {} self.version is none", self);
-    //         return false;
-    //     }
-    //     let version = self.version.unwrap();
-    //     if block.get_version() != version {
-    //         warn!(
-    //             "Verify version {} failed block version: {}, current chain version: {}",
-    //             self,
-    //             block.get_version(),
-    //             version
-    //         );
-    //         false
-    //     } else {
-    //         true
-    //     }
-    // }
 
     fn send_proposal_verify_req(&mut self, height: u64, round: u64, raw_proposal: Vec<u8>) {
         let _ = self
@@ -1306,6 +1275,35 @@ impl Bft {
         Address::zero()
     }
 
+    fn check_saved_proposal(
+        &mut self,
+        height: u64,
+        round: u64,
+        hash: &H256,
+        raw_proposal: &[u8],
+    ) -> Option<bool> {
+        if let Some(pro_status) = self.hash_proposals.get_mut(hash) {
+            match pro_status.1 {
+                VerifiedProposalStatus::Init => {
+                    self.send_proposal_verify_req(height, round, raw_proposal.to_owned())
+                }
+                VerifiedProposalStatus::Ok => {
+                    return Some(true);
+                }
+
+                _ => {
+                    return Some(false);
+                }
+            }
+        } else {
+            self.hash_proposals.insert(
+                hash.to_owned(),
+                (raw_proposal.to_owned(), VerifiedProposalStatus::Init),
+            );
+        }
+        None
+    }
+
     fn handle_proposal(
         &mut self,
         net_msg: &NetworkMsg,
@@ -1313,7 +1311,7 @@ impl Bft {
     ) -> Result<(u64, u64), EngineError> {
         trace!("Handle proposal {} begin wal_flag: {}", self, wal_flag);
         let sign_proposal: SignedNetworkProposal =
-            deserialize(&net_msg.msg).map_err(|_| EngineError::ErrFormatted)?;
+            deserialize(&net_msg.msg).map_err(|_| EngineError::UnexpectedMessage)?;
 
         let height = sign_proposal.proposal.height;
         let round = sign_proposal.proposal.round;
@@ -1374,22 +1372,15 @@ impl Bft {
             sender
         );
 
-        self.send_proposal_verify_req(
-            sign_proposal.proposal.height,
-            sign_proposal.proposal.round,
-            sign_proposal.proposal.raw_proposal.clone(),
-        );
-        self.hash_proposals.insert(
-            sign_proposal.proposal.vote_proposal.phash.clone(),
-            (
-                sign_proposal.proposal.raw_proposal.clone(),
-                VerifiedProposalStatus::Init,
-            ),
+        let check_res = self.check_saved_proposal(
+            height,
+            round,
+            &sign_proposal.proposal.vote_proposal.phash,
+            &sign_proposal.proposal.raw_proposal,
         );
 
         //self.leader_origins.insert((height, round), origin);
-        if  height > self.height
-                && height < self.height + self.auth_manage.validator_n() as u64 + 1
+        if height >= self.height && height < self.height + self.auth_manage.validator_n() as u64 + 1
         {
             if wal_flag {
                 self.wal_save_message(height, LogType::Propose, &net_msg.msg)
@@ -1403,10 +1394,20 @@ impl Bft {
             self.proposals
                 .add(height, round, sign_proposal.proposal.vote_proposal);
 
-            if height > self.height {
-                return Err(EngineError::VoteMsgForth(height as usize));
+            if height == self.height {
+                match check_res {
+                    Some(res) => {
+                        if !res {
+                            self.proposal = None;
+                        }
+                        return Ok((height, round));
+                    }
+                    None => {
+                        return Err(EngineError::InvalidTxInProposal);
+                    }
+                }
             }
-            return Ok((height, round));
+            return Err(EngineError::VoteMsgForth(height as usize));
         }
 
         Err(EngineError::UnexpectedMessage)
@@ -1584,6 +1585,7 @@ impl Bft {
 
         match tminfo.step {
             Step::Propose => {}
+            Step::ProposeAuth => {}
             Step::ProposeWait | Step::PrevoteWait | Step::PrecommitWait => {
                 let step = {
                     if tminfo.step == Step::PrecommitWait {
@@ -1639,7 +1641,10 @@ impl Bft {
     pub fn process_network(&mut self, net_msg: NetworkMsg) {
         match net_msg.r#type.as_str().into() {
             VoteMsgType::Proposal => {
-                let _res = self.handle_proposal(&net_msg, true);
+                if let Ok((height, round)) = self.handle_proposal(&net_msg, true) {
+                    self.follower_proc_proposal(height, round);
+                    self.bundle_op_after_proposal(height, round);
+                }
             }
             VoteMsgType::Prevote => {
                 if let Ok((h, r, hash)) = self.leader_handle_message(&net_msg) {
@@ -1750,7 +1755,7 @@ impl Bft {
         let step = self.step;
         trace!("Redo work {} begin", self);
         match step {
-            Step::Propose | Step::ProposeWait => {
+            Step::Propose | Step::ProposeAuth | Step::ProposeWait => {
                 self.new_round_start(height, round);
             }
             Step::Prevote | Step::PrevoteWait => {
@@ -1809,7 +1814,7 @@ impl Bft {
                     );
                 }
             }
-            Step::Commit| Step::CommitPending | Step::CommitWait => {
+            Step::Commit | Step::CommitPending | Step::CommitWait => {
                 /*when rebooting ,we did not know chain if is ready
                     if chain garantee that when I sent commit_block,
                     it can always issue block, no need for this.
@@ -1972,7 +1977,8 @@ impl Bft {
         }
         let h = u64::from_be_bytes(proposal[0..8].try_into().unwrap());
         let hash = proposal.crypt_hash();
-        self.hash_proposals.insert(hash,(proposal, VerifiedProposalStatus::Ok));
+        self.hash_proposals
+            .insert(hash, (proposal, VerifiedProposalStatus::Ok));
 
         if h <= self.height {
             return;
@@ -2002,6 +2008,17 @@ impl Bft {
         if self.deal_old_height_when_commited(self.height) {
             self.new_round_start_with_added_time(h, INIT_ROUND, added_time);
         }
+    }
+
+    fn bundle_op_after_proposal(&mut self, height: u64, round: u64) {
+        self.follower_prevote_send(height, round);
+        self.change_state_step(height, round, Step::PrevoteWait);
+        self.set_state_timeout(
+            height,
+            round,
+            Step::PrevoteWait,
+            self.proposal_interval_round_multiple(round),
+        );
     }
 
     pub async fn start(&mut self) {
@@ -2050,27 +2067,26 @@ impl Bft {
                                 self.recv_new_height_signal(proposal);
                             },
                             CtlBackBftMsg::CheckProposalRes(height,round,res) => {
-                                trace!(
-                                    "Process {} recieve check proposal  res h: {}, r: {} res {}",
-                                    self,
-                                    height,
-                                    round,
-                                    res,
-                                );
-                                if !res {
-                                    self.proposal = None;
-                                } else {
-                                    self.follower_proc_proposal(height, round);
+                                let hash = self.proposals.get_proposal(height,round).map(|p| p.phash);
+                                if let Some(hash) = hash {
+                                    if height == self.height && round == self.round && self.step < Step::Prevote {
+                                        trace!(
+                                            "Process {} recieve check proposal  res h: {}, r: {} res {}",
+                                            self,
+                                            height,
+                                            round,
+                                            res,
+                                        );
+                                        if !res {
+                                            self.proposal = None;
+                                            self.hash_proposals.remove(&hash);
+                                        } else {
+                                            self.hash_proposals.get_mut(&hash).map(|res| res.1=VerifiedProposalStatus::Ok);
+                                            self.follower_proc_proposal(height, round);
+                                        }
+                                        self.bundle_op_after_proposal(height,round);
+                                    }
                                 }
-
-                                self.follower_prevote_send(height, round);
-                                self.change_state_step(height, round, Step::PrevoteWait);
-                                self.set_state_timeout(
-                                    height,
-                                    round,
-                                    Step::PrevoteWait,
-                                    self.proposal_interval_round_multiple(round),
-                                );
                             }
                             CtlBackBftMsg::CommitBlockRes => {
                                 self.send_proposal_request();
@@ -2096,12 +2112,17 @@ impl Bft {
     fn send_proposal_request(&mut self) {
         self.bft_channels
             .to_ctl_tx
-            .send(BftToCtlMsg::GetProposalReq).unwrap();
+            .send(BftToCtlMsg::GetProposalReq)
+            .unwrap();
 
         trace!("send_proposal_request height {} ", self.height);
 
         self.change_state_step(self.height, self.round, Step::CommitPending);
-        self.set_state_timeout(self.height, self.round, Step::CommitPending, self.params.timer.get_prevote());
-
+        self.set_state_timeout(
+            self.height,
+            self.round,
+            Step::CommitPending,
+            self.params.timer.get_prevote(),
+        );
     }
 }

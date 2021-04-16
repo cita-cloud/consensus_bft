@@ -16,8 +16,8 @@ use serde_derive;
 #[macro_use]
 use util;
 
-use util::{set_panic_handler,micro_service_init};
 use message::{BftSvrMsg, BftToCtlMsg, CtlBackBftMsg};
+use util::{micro_service_init, set_panic_handler};
 
 use anyhow::Result;
 use logger::{debug, error, info, trace, warn};
