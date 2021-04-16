@@ -38,7 +38,9 @@ use crate::votetime::WaitTimer;
 use clap::Clap;
 use git_version::git_version;
 
-use cita_cloud_proto::common::{Empty, Hash, ProposalWithProof, SimpleResponse};
+use cita_cloud_proto::common::{
+    Empty, Hash, Proposal as ProtoProposal, ProposalWithProof, SimpleResponse,
+};
 use cita_cloud_proto::consensus::consensus_service_server::ConsensusServiceServer;
 use cita_cloud_proto::consensus::{
     consensus_service_server::ConsensusService, ConsensusConfiguration,
@@ -130,29 +132,30 @@ impl BftToCtl {
     async fn run(mut b2c: BftToCtl) {
         let mut client = Self::reconnect(b2c.ctr_port).await;
         while let Some(to_msg) = b2c.to_ctl_rx.recv().await {
+            warn!("consensus to ctrl get {:?}", to_msg);
             match to_msg {
                 BftToCtlMsg::GetProposalReq => {
                     let request = tonic::Request::new(Empty {});
                     let response = client
                         .get_proposal(request)
                         .await
-                        .map(|resp| resp.into_inner().hash);
+                        .map(|resp| resp.into_inner());
                     //.map_err(|e| e.into());
                     if let Ok(res) = response {
-                        let msg = CtlBackBftMsg::GetProposalRes(res);
+                        let msg = CtlBackBftMsg::GetProposalRes(res.height, res.data);
                         b2c.back_bft_tx.send(msg).unwrap();
                     }
                 }
 
-                BftToCtlMsg::CheckProposalReq(h, r, raw) => {
-                    let request = tonic::Request::new(Hash { hash: raw });
+                BftToCtlMsg::CheckProposalReq(height, r, raw) => {
+                    let request = tonic::Request::new(ProtoProposal { height, data: raw });
                     let response = client
                         .check_proposal(request)
                         .await
                         .map(|resp| resp.into_inner().is_success);
                     //.map_err(|e| e.into());
                     if let Ok(res) = response {
-                        let msg = CtlBackBftMsg::CheckProposalRes(h, r, res);
+                        let msg = CtlBackBftMsg::CheckProposalRes(height, r, res);
                         b2c.back_bft_tx.send(msg).unwrap();
                     }
                 }
@@ -209,6 +212,7 @@ impl BftToNet {
 
     async fn run(mut b2n: BftToNet) {
         let mut client = Self::reconnect(b2n.net_port).await;
+        info!("connecting to network success");
         loop {
             let request = Request::new(RegisterInfo {
                 module_name: "consensus".to_owned(),
@@ -260,6 +264,7 @@ impl NetworkMsgHandlerService for NetToBft {
         if msg.module != "consensus" {
             Err(tonic::Status::invalid_argument("wrong module"))
         } else {
+            info!("get netmsg {:?}", msg);
             self.to_bft_tx.send(msg).unwrap();
             let reply = SimpleResponse { is_success: true };
             Ok(tonic::Response::new(reply))
@@ -296,7 +301,7 @@ enum SubCommand {
 #[derive(Clap)]
 struct RunOpts {
     /// Sets grpc port of this service.
-    #[clap(short = 'p', long = "port", default_value = "50003")]
+    #[clap(short = 'p', long = "port", default_value = "50001")]
     grpc_port: String,
 }
 
@@ -358,7 +363,7 @@ async fn run(opts: RunOpts) {
 
     let addr_str = format!("127.0.0.1:{}", opts.grpc_port);
     let addr = addr_str.parse().unwrap();
-    Server::builder()
+    let _ = Server::builder()
         .add_service(ConsensusServiceServer::new(bft_svr))
         .add_service(NetworkMsgHandlerServiceServer::new(n2b))
         .serve(addr)

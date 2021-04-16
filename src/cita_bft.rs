@@ -31,7 +31,7 @@ use crate::message::{
     SignedFollowerVote, SignedNetworkProposal, Step, Vote, VoteMsgType,
 };
 use crate::types::{Address, H256};
-use cita_cloud_proto::common::ProposalWithProof;
+use cita_cloud_proto::common::{Proposal as ProtoProposal, ProposalWithProof};
 use cita_cloud_proto::network::NetworkMsg;
 use cita_directories::DataPath;
 use engine::{unix_now, AsMillis, EngineError, Mismatch};
@@ -134,6 +134,7 @@ pub struct Bft {
     votes: VoteCollector,
     proposals: ProposalCollector,
     proposal: Option<H256>,
+    self_proposal: Option<H256>,
     lock_round: Option<u64>,
     // locked_vote: Option<VoteSet>,
     // lock_round set, locked block means itself,else means proposal's block
@@ -224,6 +225,7 @@ impl Bft {
             votes: VoteCollector::new(),
             proposals: ProposalCollector::new(),
             proposal: None,
+            self_proposal: None,
             lock_round: None,
             wal_log: RefCell::new(Wal::create(&*logpath).unwrap()),
             send_filter: BTreeMap::new(),
@@ -793,7 +795,10 @@ impl Bft {
                 let proof = self.generate_proof(height, commit_round, hash);
                 if let Some(proof) = proof {
                     let pproof = ProposalWithProof {
-                        proposal: raw_proposal.to_owned(),
+                        proposal: Some(ProtoProposal {
+                            height,
+                            data: raw_proposal.to_owned(),
+                        }),
                         proof,
                     };
                     self.bft_channels
@@ -897,9 +902,9 @@ impl Bft {
     }
 
     fn check_proposal_proof(&self, pproof: ProposalWithProof) -> bool {
-        let phash = pproof.proposal.crypt_hash();
+        let phash = pproof.proposal.unwrap().data.crypt_hash();
 
-        let lvote: LeaderVote = deserialize(&pproof.proposal).unwrap_or(LeaderVote::default());
+        let lvote: LeaderVote = deserialize(&pproof.proof).unwrap_or(LeaderVote::default());
         if !self.is_above_threshold(lvote.votes.len() as u64)
             || !self.is_above_threshold_old(lvote.votes.len() as u64)
         {
@@ -1493,7 +1498,11 @@ impl Bft {
                 return false;
             }
         } else {
-            let p = Proposal::new(self.proposal.unwrap());
+            if self.self_proposal.is_none() {
+                return false;
+            }
+            self.proposal = self.self_proposal;
+            let p = Proposal::new(self.self_proposal.unwrap());
             self.proposals.add(self.height, self.round, p.clone());
             let cp = NetworkProposal::new_with_proposal(self.height, self.round, p);
             let sig = self.sign_msg(cp.clone());
@@ -1971,11 +1980,7 @@ impl Bft {
         trace!("load_wal_log ends");
     }
 
-    fn recv_new_height_signal(&mut self, proposal: Vec<u8>) {
-        if proposal.len() <= std::mem::size_of::<u64>() {
-            return;
-        }
-        let h = u64::from_be_bytes(proposal[0..8].try_into().unwrap());
+    fn recv_new_height_signal(&mut self, h: u64, proposal: Vec<u8>) {
         let hash = proposal.crypt_hash();
         self.hash_proposals
             .insert(hash, (proposal, VerifiedProposalStatus::Ok));
@@ -1983,8 +1988,7 @@ impl Bft {
         if h <= self.height {
             return;
         }
-
-        self.proposal = Some(hash);
+        self.self_proposal = Some(hash);
         let mut added_time = Duration::new(0, 0);
 
         let now = unix_now();
@@ -2032,6 +2036,7 @@ impl Bft {
         loop {
             tokio::select! {
                 svrmsg = self.bft_channels.to_bft_rx.recv() => {
+                    info!("recv to bft msg {:?}",svrmsg);
                     if let Some(svrmsg) = svrmsg {
                         match svrmsg {
                             BftSvrMsg::Conf(config) => {
@@ -2041,7 +2046,7 @@ impl Bft {
                                     validators.push(Address::from(&v[..]));
                                 }
                                 self.auth_manage.receive_authorities_list(
-                                                self.height as usize,
+                                                config.height as usize,
                                                 &validators,
                                                 &validators,
                                             );
@@ -2061,10 +2066,11 @@ impl Bft {
                 },
 
                 cback = self.bft_channels.ctl_back_rx.recv() => {
+                    info!("recv to control back msg {:?}",cback);
                     if let Some(cback) = cback {
                         match cback {
-                            CtlBackBftMsg::GetProposalRes(proposal) => {
-                                self.recv_new_height_signal(proposal);
+                            CtlBackBftMsg::GetProposalRes(height,proposal) => {
+                                self.recv_new_height_signal(height,proposal);
                             },
                             CtlBackBftMsg::CheckProposalRes(height,round,res) => {
                                 let hash = self.proposals.get_proposal(height,round).map(|p| p.phash);
@@ -2095,12 +2101,14 @@ impl Bft {
                     }
                 },
                 net_msg = self.bft_channels.net_back_rx.recv() => {
+                    info!("recv to network back msg {:?}",net_msg);
                     if let Some(net_msg) = net_msg {
                         self.process_network(net_msg);
                     }
 
                 },
                 tminfo = self.bft_channels.timer_back_rx.recv() => {
+                    info!("recv to timer msg {:?}",tminfo);
                     if let Some(tminfo) = tminfo {
                         self.timeout_process(&tminfo);
                     }

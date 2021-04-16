@@ -26,7 +26,7 @@ pub enum BftToCtlMsg {
 
 #[derive(Debug)]
 pub enum CtlBackBftMsg {
-    GetProposalRes(Vec<u8>),
+    GetProposalRes(u64, Vec<u8>),
     CheckProposalRes(u64, u64, bool),
     CommitBlockRes,
 }
