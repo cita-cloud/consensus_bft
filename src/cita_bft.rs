@@ -172,14 +172,14 @@ impl ::std::fmt::Debug for Bft {
         write!(
             f,
             "Bft {{ \
-             h: {}, r: {}, nr: {:?}, s: {}, v: {:?} \
+             h: {}, r: {}, stime: {:?}, s: {}, v: {:?} \
              , proposal: {:?}, \
              lock_round: {:?}, last_commit_round: {:?}, \
              is_consensus_node: {:?}, is_cleared: {} \
              }}",
             self.height,
             self.round,
-            self.nil_round,
+            self.start_time,
             self.step,
             self.version,
             self.proposal,
@@ -195,8 +195,8 @@ impl ::std::fmt::Display for Bft {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(
             f,
-            "Bft {{ h: {}, r: {}, s: {}, nr: {} }}",
-            self.height, self.round, self.step, self.nil_round.0,
+            "Bft {{ h: {}, r: {}, s: {}, stime: {:?} }}",
+            self.height, self.round, self.step, self.start_time,
         )
     }
 }
@@ -255,7 +255,7 @@ impl Bft {
 
     fn is_only_one_node(&self) -> bool {
         let len = self.auth_manage.validator_n();
-        if len == 1 {
+        if len == 1 && self.is_consensus_node {
             return true;
         }
         false
@@ -803,7 +803,7 @@ impl Bft {
                     };
                     self.bft_channels
                         .to_ctl_tx
-                        .send(BftToCtlMsg::CommitBlock(pproof))
+                        .send(BftToCtlMsg::CommitBlock(height, pproof))
                         .unwrap();
                     return true;
                 }
@@ -834,8 +834,8 @@ impl Bft {
         );
         let net_msg_type = {
             match step {
-                Step::Prevote => VoteMsgType::LeaderPrevote,
-                Step::Precommit => VoteMsgType::LeaderPrecommit,
+                Step::Prevote => VoteMsgType::Prevote,
+                Step::Precommit => VoteMsgType::Precommit,
                 Step::NewView => VoteMsgType::NewView,
                 _ => VoteMsgType::Noop,
             }
@@ -1264,7 +1264,7 @@ impl Bft {
         // self.locked_block = blk;
     }
 
-    fn send_proposal_verify_req(&mut self, height: u64, round: u64, raw_proposal: Vec<u8>) {
+    fn send_proposal_verify_req(&self, height: u64, round: u64, raw_proposal: Vec<u8>) {
         let _ = self
             .bft_channels
             .to_ctl_tx
@@ -1280,34 +1280,38 @@ impl Bft {
         Address::zero()
     }
 
-    fn check_saved_proposal(
-        &mut self,
-        height: u64,
-        round: u64,
-        hash: &H256,
-        raw_proposal: &[u8],
-    ) -> Option<bool> {
+    fn check_proposal_hash(&mut self, hash: &H256) -> Option<bool> {
         if let Some(pro_status) = self.hash_proposals.get_mut(hash) {
             match pro_status.1 {
-                VerifiedProposalStatus::Init => {
-                    self.send_proposal_verify_req(height, round, raw_proposal.to_owned())
-                }
                 VerifiedProposalStatus::Ok => {
                     return Some(true);
                 }
-
-                _ => {
+                VerifiedProposalStatus::Err => {
                     return Some(false);
                 }
+                _ => {}
             }
-        } else {
-            self.hash_proposals.insert(
-                hash.to_owned(),
-                (raw_proposal.to_owned(), VerifiedProposalStatus::Init),
-            );
         }
         None
     }
+
+    // fn recheck_saved_proposal(
+    //     &mut self,
+    //     height: u64,
+    //     round: u64,
+    // ) -> bool {
+    //     let res =self.proposals.get_proposal(height, round);
+    //     if let Some(proposal) = res {
+    //         let res = self.hash_proposals.get_mut(&proposal.phash).cloned();
+    //         if let Some((raw_proposal,_)) = res  {
+    //             self.send_proposal_verify_req(height, round, raw_proposal.to_owned());
+    //             self.change_state_step(height, round, Step::ProposeAuth);
+    //             self.set_state_timeout(height, round, Step::ProposeAuth, self.params.timer.get_propose());
+    //             return true;
+    //         }
+    //     }
+    //     false
+    // }
 
     fn handle_proposal(
         &mut self,
@@ -1377,12 +1381,9 @@ impl Bft {
             sender
         );
 
-        let check_res = self.check_saved_proposal(
-            height,
-            round,
-            &sign_proposal.proposal.vote_proposal.phash,
-            &sign_proposal.proposal.raw_proposal,
-        );
+        let check_res = self.check_proposal_hash(&sign_proposal.proposal.vote_proposal.phash);
+        self.proposals
+            .add(height, round, sign_proposal.proposal.vote_proposal.clone());
 
         //self.leader_origins.insert((height, round), origin);
         if height >= self.height && height < self.height + self.auth_manage.validator_n() as u64 + 1
@@ -1396,9 +1397,6 @@ impl Bft {
                 self, height, round
             );
 
-            self.proposals
-                .add(height, round, sign_proposal.proposal.vote_proposal);
-
             if height == self.height {
                 match check_res {
                     Some(res) => {
@@ -1408,6 +1406,13 @@ impl Bft {
                         return Ok((height, round));
                     }
                     None => {
+                        self.hash_proposals.insert(
+                            sign_proposal.proposal.vote_proposal.phash,
+                            (
+                                sign_proposal.proposal.raw_proposal.clone(),
+                                VerifiedProposalStatus::Init,
+                            ),
+                        );
                         return Err(EngineError::InvalidTxInProposal);
                     }
                 }
@@ -1499,6 +1504,7 @@ impl Bft {
             }
         } else {
             if self.self_proposal.is_none() {
+                self.send_proposal_request();
                 return false;
             }
             self.proposal = self.self_proposal;
@@ -1594,7 +1600,6 @@ impl Bft {
 
         match tminfo.step {
             Step::Propose => {}
-            Step::ProposeAuth => {}
             Step::ProposeWait | Step::PrevoteWait | Step::PrecommitWait => {
                 let step = {
                     if tminfo.step == Step::PrecommitWait {
@@ -1629,9 +1634,6 @@ impl Bft {
             }
             Step::Commit => {
                 self.do_commit_work(tminfo.height, tminfo.round);
-            }
-            Step::CommitPending => {
-                self.send_proposal_request();
             }
             Step::CommitWait => {
                 if self.deal_old_height_when_commited(tminfo.height) {
@@ -1720,7 +1722,12 @@ impl Bft {
 
     fn new_round_start_with_added_time(&mut self, height: u64, round: u64, added_time: Duration) {
         self.change_state_step(height, round, Step::Propose);
+        info!(
+            "new_round_start_with_added_time added time {:?}",
+            added_time
+        );
         if round == INIT_ROUND {
+            self.wal_new_height(height);
             self.start_time = unix_now() + added_time;
             // When this node in lower height, maybe other node's
             // Newview message already arrived
@@ -1764,7 +1771,7 @@ impl Bft {
         let step = self.step;
         trace!("Redo work {} begin", self);
         match step {
-            Step::Propose | Step::ProposeAuth | Step::ProposeWait => {
+            Step::Propose | Step::ProposeWait => {
                 self.new_round_start(height, round);
             }
             Step::Prevote | Step::PrevoteWait => {
@@ -1823,7 +1830,7 @@ impl Bft {
                     );
                 }
             }
-            Step::Commit | Step::CommitPending | Step::CommitWait => {
+            Step::Commit | Step::CommitWait => {
                 /*when rebooting ,we did not know chain if is ready
                     if chain garantee that when I sent commit_block,
                     it can always issue block, no need for this.
@@ -1981,20 +1988,28 @@ impl Bft {
     }
 
     fn recv_new_height_signal(&mut self, h: u64, proposal: Vec<u8>) {
+        if h < self.height {
+            return;
+        }
         let hash = proposal.crypt_hash();
         self.hash_proposals
             .insert(hash, (proposal, VerifiedProposalStatus::Ok));
-
-        if h <= self.height {
-            return;
-        }
         self.self_proposal = Some(hash);
-        let mut added_time = Duration::new(0, 0);
+    }
 
+    fn proc_commit_res(&mut self, h: u64) {
+        let mut added_time = Duration::new(0, 0);
         let now = unix_now();
+
+        info!(
+            "--- now {:?} start time {:?} interval {}",
+            now,
+            self.start_time,
+            self.params.timer.get_total_duration()
+        );
         if let Some(gone_time) = now.checked_sub(self.start_time) {
             let config_interval = Duration::from_millis(self.params.timer.get_total_duration());
-            if h == self.height + 1 && gone_time < config_interval {
+            if h == self.height && gone_time < config_interval {
                 added_time = config_interval - gone_time;
             }
         }
@@ -2036,6 +2051,7 @@ impl Bft {
         loop {
             tokio::select! {
                 svrmsg = self.bft_channels.to_bft_rx.recv() => {
+                    info!("recv to bft msg {:?}",svrmsg);
                     if let Some(svrmsg) = svrmsg {
                         match svrmsg {
                             BftSvrMsg::Conf(config) => {
@@ -2052,6 +2068,7 @@ impl Bft {
 
                                 if self.is_validator(&self.params.signer.address) {
                                     self.is_consensus_node = true;
+                                    self.send_proposal_request();
                                 } else {
                                     self.is_consensus_node = false;
                                 }
@@ -2065,6 +2082,7 @@ impl Bft {
                 },
 
                 cback = self.bft_channels.ctl_back_rx.recv() => {
+                    info!("recv to control back msg {:?}",cback);
                     if let Some(cback) = cback {
                         match cback {
                             CtlBackBftMsg::GetProposalRes(height,proposal) => {
@@ -2092,19 +2110,22 @@ impl Bft {
                                     }
                                 }
                             }
-                            CtlBackBftMsg::CommitBlockRes => {
+                            CtlBackBftMsg::CommitBlockRes(h) => {
                                 self.send_proposal_request();
+                                self.proc_commit_res(h);
                             }
                         }
                     }
                 },
                 net_msg = self.bft_channels.net_back_rx.recv() => {
+                    info!("recv to network back msg {:?}",net_msg);
                     if let Some(net_msg) = net_msg {
                         self.process_network(net_msg);
                     }
 
                 },
                 tminfo = self.bft_channels.timer_back_rx.recv() => {
+                    info!("recv to timer msg {:?}",tminfo);
                     if let Some(tminfo) = tminfo {
                         self.timeout_process(&tminfo);
                     }
@@ -2113,20 +2134,22 @@ impl Bft {
         }
     }
 
+    // fn send_proposal_and_wait(&mut self,height:u64,round:u64) {
+    //     self.send_proposal_request();
+    //     self.change_state_step(height, round, Step::ProposeAuth);
+    //     self.set_state_timeout(
+    //         height,
+    //         round,
+    //         Step::ProposeAuth,
+    //         self.params.timer.get_prevote(),
+    //     );
+    // }
+
     fn send_proposal_request(&mut self) {
         self.bft_channels
             .to_ctl_tx
             .send(BftToCtlMsg::GetProposalReq)
             .unwrap();
-
         trace!("send_proposal_request height {} ", self.height);
-
-        self.change_state_step(self.height, self.round, Step::CommitPending);
-        self.set_state_timeout(
-            self.height,
-            self.round,
-            Step::CommitPending,
-            self.params.timer.get_prevote(),
-        );
     }
 }

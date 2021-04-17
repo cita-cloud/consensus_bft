@@ -125,6 +125,7 @@ impl BftToCtl {
             }
             debug!("Retrying to connect controller");
         };
+        info!("connecting to controller success");
         client
     }
 
@@ -132,6 +133,7 @@ impl BftToCtl {
     async fn run(mut b2c: BftToCtl) {
         let mut client = Self::reconnect(b2c.ctr_port).await;
         while let Some(to_msg) = b2c.to_ctl_rx.recv().await {
+            warn!("consensus to ctrl get {:?}", to_msg);
             match to_msg {
                 BftToCtlMsg::GetProposalReq => {
                     let request = tonic::Request::new(Empty {});
@@ -158,12 +160,12 @@ impl BftToCtl {
                         b2c.back_bft_tx.send(msg).unwrap();
                     }
                 }
-                BftToCtlMsg::CommitBlock(pproff) => {
+                BftToCtlMsg::CommitBlock(height, pproff) => {
                     let request = tonic::Request::new(pproff);
                     let response = client.commit_block(request).await.map(|_resp| ());
                     //.map_err(|e| e.into());
                     if let Ok(_) = response {
-                        let msg = CtlBackBftMsg::CommitBlockRes;
+                        let msg = CtlBackBftMsg::CommitBlockRes(height);
                         b2c.back_bft_tx.send(msg).unwrap();
                     }
                 }
@@ -211,6 +213,7 @@ impl BftToNet {
 
     async fn run(mut b2n: BftToNet) {
         let mut client = Self::reconnect(b2n.net_port).await;
+        info!("connecting to network success");
         loop {
             let request = Request::new(RegisterInfo {
                 module_name: "consensus".to_owned(),
@@ -262,6 +265,7 @@ impl NetworkMsgHandlerService for NetToBft {
         if msg.module != "consensus" {
             Err(tonic::Status::invalid_argument("wrong module"))
         } else {
+            info!("get netmsg {:?}", msg);
             self.to_bft_tx.send(msg).unwrap();
             let reply = SimpleResponse { is_success: true };
             Ok(tonic::Response::new(reply))
@@ -298,7 +302,7 @@ enum SubCommand {
 #[derive(Clap)]
 struct RunOpts {
     /// Sets grpc port of this service.
-    #[clap(short = 'p', long = "port", default_value = "50003")]
+    #[clap(short = 'p', long = "port", default_value = "50001")]
     grpc_port: String,
 }
 

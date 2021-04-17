@@ -21,14 +21,14 @@ pub enum BftSvrMsg {
 pub enum BftToCtlMsg {
     GetProposalReq,
     CheckProposalReq(u64, u64, Vec<u8>),
-    CommitBlock(ProposalWithProof),
+    CommitBlock(u64, ProposalWithProof),
 }
 
 #[derive(Debug)]
 pub enum CtlBackBftMsg {
     GetProposalRes(u64, Vec<u8>),
     CheckProposalRes(u64, u64, bool),
-    CommitBlockRes,
+    CommitBlockRes(u64),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Default)]
@@ -151,14 +151,12 @@ impl Into<&str> for VoteMsgType {
 #[derive(Serialize, Deserialize, Debug, PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Hash)]
 pub enum Step {
     Propose,
-    ProposeAuth,
     ProposeWait,
     Prevote,
     PrevoteWait,
     Precommit,
     PrecommitWait,
     Commit,
-    CommitPending,
     CommitWait,
     NewView,
 }
@@ -173,16 +171,14 @@ impl From<u8> for Step {
     fn from(s: u8) -> Step {
         match s {
             0 => Step::Propose,
-            1 => Step::ProposeAuth,
-            2 => Step::ProposeWait,
-            3 => Step::Prevote,
-            4 => Step::PrevoteWait,
-            5 => Step::Precommit,
-            6 => Step::PrecommitWait,
-            7 => Step::Commit,
-            8 => Step::CommitPending,
-            9 => Step::CommitWait,
-            10 => Step::NewView,
+            1 => Step::ProposeWait,
+            2 => Step::Prevote,
+            3 => Step::PrevoteWait,
+            4 => Step::Precommit,
+            5 => Step::PrecommitWait,
+            6 => Step::Commit,
+            7 => Step::CommitWait,
+            8 => Step::NewView,
             _ => panic!("Invalid step."),
         }
     }
