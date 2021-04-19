@@ -12,30 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use authority_manage::AuthorityManage;
-use bincode::{deserialize, serialize};
-use crate::params::BftParams;
-use crate::voteset::{Proposal, ProposalCollector, VoteCollector, VoteSet};
-use crate::votetime::TimeoutInfo;
-use crate::wal::{LogType, Wal};
-use cita_logger::{debug, error, info, trace, warn};
 use crate::crypto::{pubkey_to_address, CreateKey, Sign, Signature, SIGNATURE_BYTES_LEN};
 use crate::message::{
     BftSvrMsg, BftToCtlMsg, CtlBackBftMsg, FollowerVote, LeaderVote, NetworkProposal,
     SignedFollowerVote, SignedNetworkProposal, Step, VoteMsgType,
 };
+use crate::params::BftParams;
 use crate::types::{Address, H256};
+use crate::voteset::{Proposal, ProposalCollector, VoteCollector, VoteSet};
+use crate::votetime::TimeoutInfo;
+use crate::wal::{LogType, Wal};
+use authority_manage::AuthorityManage;
+use bincode::{deserialize, serialize};
 use cita_cloud_proto::common::{Proposal as ProtoProposal, ProposalWithProof};
 use cita_cloud_proto::network::NetworkMsg;
 use cita_directories::DataPath;
+use cita_logger::{debug, error, info, trace, warn};
 use engine::{unix_now, EngineError, Mismatch};
 use hashable::Hashable;
 use proof::BftProof;
-use std::collections::{BTreeMap};
-use std::time::{Duration, Instant};
-use std::{cell::RefCell};
-use tokio::sync::mpsc;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::convert::{From, Into};
+use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
 // #[macro_use]
 // use lazy_static;
 
@@ -121,7 +121,7 @@ pub struct Bft {
     votes: VoteCollector,
     proposals: ProposalCollector,
     proposal: Option<H256>,
-    self_proposal: BTreeMap<u64,H256>,
+    self_proposal: BTreeMap<u64, H256>,
     lock_round: Option<u64>,
     // locked_vote: Option<VoteSet>,
     // lock_round set, locked block means itself,else means proposal's block
@@ -1049,7 +1049,7 @@ impl Bft {
             return Err(EngineError::VoteMsgDelay(h as usize));
         }
         let sender = Self::design_message(fvote.sig.clone(), fvote.vote.clone());
-        trace!("handle_newview sender {:?}",sender);
+        trace!("handle_newview sender {:?}", sender);
         if !self.is_validator(&sender) {
             return Err(EngineError::NotAuthorized(sender));
         }
@@ -1348,7 +1348,11 @@ impl Bft {
                         return Ok((height, round));
                     }
                     None => {
-                        self.send_proposal_verify_req(height,round,sign_proposal.proposal.raw_proposal.clone());
+                        self.send_proposal_verify_req(
+                            height,
+                            round,
+                            sign_proposal.proposal.raw_proposal.clone(),
+                        );
                         if wal_flag {
                             self.wal_save_message(height, LogType::Propose, &net_msg.msg)
                                 .unwrap();
@@ -1582,7 +1586,7 @@ impl Bft {
         match net_msg.r#type.as_str().into() {
             VoteMsgType::Proposal => {
                 let res = self.handle_proposal(&net_msg, true);
-                warn!("------ net msg Proposal res {:?}",res);
+                warn!("------ net msg Proposal res {:?}", res);
                 if let Ok((height, round)) = res {
                     self.follower_proc_proposal(height, round);
                     self.bundle_op_after_proposal(height, round);
@@ -1590,38 +1594,38 @@ impl Bft {
             }
             VoteMsgType::Prevote => {
                 let res = self.leader_handle_message(&net_msg);
-                warn!("------ net msg Prevote res {:?}",res);
+                warn!("------ net msg Prevote res {:?}", res);
                 if let Ok((h, r, hash)) = res {
                     self.leader_proc_prevote(h, r, hash);
                 }
             }
             VoteMsgType::Precommit => {
                 let res = self.leader_handle_message(&net_msg);
-                warn!("------ net msg Precommit res {:?}",res);
+                warn!("------ net msg Precommit res {:?}", res);
                 if let Ok((h, r, hash)) = res {
                     self.leader_proc_precommit(h, r, hash);
                 }
             }
             VoteMsgType::LeaderPrevote => {
                 let res = self.follower_handle_message(Step::Prevote, &net_msg);
-                warn!("------ net msg LeaderPrevote res {:?}",res);
+                warn!("------ net msg LeaderPrevote res {:?}", res);
                 if let Ok((h, r, hash)) = res {
                     self.follower_proc_prevote(h, r, hash);
                 }
             }
             VoteMsgType::LeaderPrecommit => {
                 let res = self.follower_handle_message(Step::Precommit, &net_msg);
-                warn!("------ net msg LeaderPrecommit res {:?}",res);
+                warn!("------ net msg LeaderPrecommit res {:?}", res);
                 if let Ok((h, r, hash)) = res {
                     self.follower_proc_precommit(h, r, Some(hash));
                 }
             }
             VoteMsgType::NewView => {
                 let res = self.handle_newview(&net_msg);
-                warn!("------ net msg NewView res {:?}",res);
+                warn!("------ net msg NewView res {:?}", res);
                 if let Ok((h, r)) = res {
                     self.proc_new_view(h, r);
-                } 
+                }
             }
             _ => {}
         }
@@ -1967,7 +1971,7 @@ impl Bft {
         }
 
         if !self
-            .is_round_leader(h+1, INIT_ROUND, &self.params.signer.address)
+            .is_round_leader(h + 1, INIT_ROUND, &self.params.signer.address)
             .unwrap_or(false)
             || self.is_only_one_node()
         {
@@ -1977,7 +1981,7 @@ impl Bft {
         }
 
         if self.deal_old_height_when_commited(self.height) {
-            self.new_round_start_with_added_time(h+1, INIT_ROUND, added_time);
+            self.new_round_start_with_added_time(h + 1, INIT_ROUND, added_time);
         }
     }
 
@@ -2070,14 +2074,14 @@ impl Bft {
                     }
                 },
                 net_msg = self.bft_channels.net_back_rx.recv() => {
-                    info!("recv to network back msg {:?}",net_msg);
+                    //info!("recv to network back msg {:?}",net_msg);
                     if let Some(net_msg) = net_msg {
                         self.process_network(net_msg);
                     }
 
                 },
                 tminfo = self.bft_channels.timer_back_rx.recv() => {
-                    info!("recv to timer back msg {:?}",tminfo);
+                    //info!("recv to timer back msg {:?}",tminfo);
                     if let Some(tminfo) = tminfo {
                         self.timeout_process(&tminfo);
                     }

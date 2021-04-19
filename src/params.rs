@@ -14,9 +14,8 @@
 
 use crate::crypto::{PrivKey, Signer};
 use crate::types::clean_0x;
-use serde::{Deserialize};
+use serde::Deserialize;
 use std::cell::Cell;
-
 
 use std::str::FromStr;
 use std::time::Duration;

@@ -12,13 +12,11 @@ use cita_types as types;
 use cita_logger as logger;
 
 #[macro_use]
-
 #[macro_use]
 use util;
 
 use message::{BftSvrMsg, BftToCtlMsg, CtlBackBftMsg};
 use util::{micro_service_init, set_panic_handler};
-
 
 use logger::{debug, error, info, warn};
 use tokio::sync::mpsc;
@@ -309,7 +307,7 @@ struct RunOpts {
 #[tokio::main]
 async fn run(opts: RunOpts) {
     ::std::env::set_var("RUST_BACKTRACE", "full");
-    ::std::env::set_var("DATA_PATH", "./data/");
+    ::std::env::set_var("DATA_PATH", "./data");
     info!("start consensus bft");
 
     let buffer = std::fs::read_to_string("consensus-config.toml")

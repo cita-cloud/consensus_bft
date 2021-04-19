@@ -3,9 +3,7 @@ use crate::voteset::Proposal;
 use bincode;
 
 use cita_cloud_proto::common::ProposalWithProof;
-use cita_cloud_proto::consensus::{
-    ConsensusConfiguration,
-};
+use cita_cloud_proto::consensus::ConsensusConfiguration;
 use cita_types::H256;
 use hashable::Hashable;
 use serde::{Deserialize, Serialize};
