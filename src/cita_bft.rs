@@ -14,33 +14,28 @@
 
 use authority_manage::AuthorityManage;
 use bincode::{deserialize, serialize};
-use clap::lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
-use std::convert::{From, Into, TryInto};
-
 use crate::params::BftParams;
 use crate::voteset::{Proposal, ProposalCollector, VoteCollector, VoteSet};
-
 use crate::votetime::TimeoutInfo;
 use crate::wal::{LogType, Wal};
 use cita_logger::{debug, error, info, trace, warn};
-
 use crate::crypto::{pubkey_to_address, CreateKey, Sign, Signature, SIGNATURE_BYTES_LEN};
 use crate::message::{
     BftSvrMsg, BftToCtlMsg, CtlBackBftMsg, FollowerVote, LeaderVote, NetworkProposal,
-    SignedFollowerVote, SignedNetworkProposal, Step, Vote, VoteMsgType,
+    SignedFollowerVote, SignedNetworkProposal, Step, VoteMsgType,
 };
 use crate::types::{Address, H256};
 use cita_cloud_proto::common::{Proposal as ProtoProposal, ProposalWithProof};
 use cita_cloud_proto::network::NetworkMsg;
 use cita_directories::DataPath;
-use engine::{unix_now, AsMillis, EngineError, Mismatch};
+use engine::{unix_now, EngineError, Mismatch};
 use hashable::Hashable;
 use proof::BftProof;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap};
 use std::time::{Duration, Instant};
-use std::{cell::RefCell, fs, process::exit};
+use std::{cell::RefCell};
 use tokio::sync::mpsc;
+use std::convert::{From, Into};
 // #[macro_use]
 // use lazy_static;
 
@@ -52,10 +47,7 @@ const MAX_PROPOSAL_TIME_COEF: u64 = 18;
 const TIMEOUT_RETRANSE_MULTIPLE: u32 = 15;
 const TIMEOUT_LOW_ROUND_FEED_MULTIPLE: u32 = 23;
 
-//const BLOCK_TIMESTAMP_INTERVAL: u64 = 100;
 const DEFAULT_TIME_INTERVAL: u64 = 3000;
-const TIMESTAMP_JUDGE_BLOCK_INTERVAL: u64 = 200;
-
 type NilRound = (u64, u64);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -126,8 +118,6 @@ pub struct Bft {
     step: Step,
     // proof: BTreeMap<u64, BftProof>,
     hash_proposals: lru_cache::LruCache<H256, (Vec<u8>, VerifiedProposalStatus)>,
-    // Timestamps of old blocks
-    height_timestamps: BTreeMap<u64, u64>,
     votes: VoteCollector,
     proposals: ProposalCollector,
     proposal: Option<H256>,
@@ -142,26 +132,9 @@ pub struct Bft {
     start_time: Duration,
     auth_manage: AuthorityManage,
     is_consensus_node: bool,
-    //params meaning: key :index 0->height,1->round ,value:0->verified msg,1->verified result
-    //unverified_msg: BTreeMap<(u64, u64), (Vec<u8>, VerifiedProposalStatus)>,
-    // VecDeque might work, Almost always it is better to use Vec or VecDeque instead of LinkedList
-    block_txs: BTreeMap<u64, Vec<u8>>,
-    block_proof: Option<(u64, ProposalWithProof)>,
-
-    // The verified blocks with the bodies of transactions.
-    verified_blocks: Vec<(H256, Vec<u8>)>,
-
-    // whether the datas above have been cleared.
-    is_cleared: bool,
-
     leader_origins: BTreeMap<(u64, u64), u32>,
 
-    version: Option<u32>,
-
     bft_channels: BftChannls,
-
-    #[cfg(feature = "timestamp_test")]
-    pub mock_time_modify: TimeOffset,
 }
 
 impl ::std::fmt::Debug for Bft {
@@ -169,21 +142,18 @@ impl ::std::fmt::Debug for Bft {
         write!(
             f,
             "Bft {{ \
-             h: {}, r: {}, stime: {:?}, s: {}, v: {:?} \
-             , proposal: {:?}, \
-             lock_round: {:?}, last_commit_round: {:?}, \
-             is_consensus_node: {:?}, is_cleared: {} \
+             h: {}, r: {}, stime: {:?}, s: {}, \
+             , proposal: {:?},lock_round: {:?}, last_commit_round: {:?}, \
+             is_consensus_node: {:?}, \
              }}",
             self.height,
             self.round,
             self.start_time,
             self.step,
-            self.version,
             self.proposal,
             self.lock_round,
             self.last_commit_round,
             self.is_consensus_node,
-            self.is_cleared,
         )
     }
 }
@@ -218,7 +188,6 @@ impl Bft {
             nil_round: (INIT_ROUND, INIT_ROUND),
             step: Step::Propose,
             hash_proposals: lru_cache::LruCache::new(100),
-            height_timestamps: BTreeMap::new(),
             votes: VoteCollector::new(),
             proposals: ProposalCollector::new(),
             proposal: None,
@@ -231,11 +200,6 @@ impl Bft {
             auth_manage: AuthorityManage::new(),
             is_consensus_node: false,
             leader_origins: BTreeMap::new(),
-            block_txs: BTreeMap::new(),
-            block_proof: None,
-            verified_blocks: Vec::new(),
-            is_cleared: false,
-            version: None,
             bft_channels,
         }
     }
@@ -283,22 +247,6 @@ impl Bft {
             //info!(" This round  proposer {:?} comming {:?}", proposer, address);
             Ok(false)
         }
-    }
-
-    pub fn pub_block(&self, block: &ProposalWithProof) {}
-
-    fn get_verified_block(&self, hash: &H256) -> Option<Vec<u8>> {
-        for (vhash, block) in &self.verified_blocks {
-            if vhash == hash {
-                return Some(block.clone());
-            }
-        }
-        None
-    }
-
-    fn remove_verified_block(&mut self, height: u64) {
-        // self.verified_blocks
-        //     .retain(|(_, block)| block.get_header().get_height() as u64 > height);
     }
 
     pub fn pub_proposal(&mut self, compact_signed_proposal: &SignedNetworkProposal) {
@@ -609,7 +557,7 @@ impl Bft {
     fn pre_proc_precommit(&mut self) -> bool {
         let height = self.height;
         let round = self.round;
-        let mut lock_ok = false;
+        let _lock_ok = false;
 
         trace!("pre proc precommit begin {}", self);
 
@@ -756,11 +704,11 @@ impl Bft {
         if self.height <= height {
             self.clean_proposal_locked_info();
             self.clean_filter_info();
-            self.clean_block_txs();
-            self.clean_proof_hash();
+            self.clean_self_proposal();
             self.clean_leader_origins();
-            self.remove_verified_block(height);
-            self.clean_height_timestamps();
+            self.lock_round = None;
+            self.last_commit_round = None;
+
             self.nil_round = (INIT_ROUND, INIT_ROUND);
             return true;
         }
@@ -852,7 +800,7 @@ impl Bft {
 
     fn collect_votes(vote_set: &VoteSet, hash: H256) -> Vec<SignedFollowerVote> {
         let mut votes = Vec::new();
-        for (sender, sign_vote) in &vote_set.votes_by_sender {
+        for (_sender, sign_vote) in &vote_set.votes_by_sender {
             if let Some(phash) = sign_vote.vote.hash {
                 if phash != hash {
                     continue;
@@ -1258,7 +1206,7 @@ impl Bft {
         false
     }
 
-    fn set_proposal_and_block(&mut self, hash: Option<H256>, blk: Option<Vec<u8>>) {
+    fn set_proposal_and_block(&mut self, _hash: Option<H256>, _blk: Option<Vec<u8>>) {
         // self.proposal = hash;
         // self.locked_block = blk;
     }
@@ -1416,19 +1364,9 @@ impl Bft {
                     }
                 }
             }
-            
             return Err(EngineError::VoteMsgForth(height as usize));
         }
-
         Err(EngineError::UnexpectedMessage)
-    }
-
-    /// Clean proof and chain hash result
-    fn clean_proof_hash(&mut self) {
-        // if self.height > INIT_HEIGHT {
-        //     self.proof = self.proof.split_off(&(self.height - 1));
-        //     self.height_hashes = self.height_hashes.split_off(&(self.height - 1));
-        // }
     }
 
     /// Clean origin of height,round
@@ -1445,30 +1383,12 @@ impl Bft {
         self.last_commit_round = None;
     }
 
-    fn clean_verified_info(&mut self, height: u64) {
-        //self.unverified_msg = self.unverified_msg.split_off(&(height + 1, 0));
-    }
-
-    fn clean_block_txs(&mut self) {
-        self.block_txs = self.block_txs.split_off(&self.height);
-    }
-
-    fn clean_height_timestamps(&mut self) {
-        self.height_timestamps = self.height_timestamps.split_off(&(self.height - 1));
+    fn clean_self_proposal(&mut self) {
+        self.self_proposal = self.self_proposal.split_off(&self.height);
     }
 
     fn clean_filter_info(&mut self) {
         self.send_filter.clear();
-    }
-
-    fn clean_proposal_when_verify_failed(&mut self) {
-        let height = self.height;
-        let round = self.round;
-        self.clean_proposal_locked_info();
-        self.pub_follower_message(height, round, Step::Prevote, Some(H256::default()));
-        self.pub_follower_message(height, round, Step::Precommit, Some(H256::default()));
-        self.change_state_step(height, round, Step::NewView);
-        self.pub_newview_message(height, round);
     }
 
     fn sign_msg<T>(&self, can_hash: T) -> Signature
@@ -1963,7 +1883,7 @@ impl Bft {
 
                 LogType::QuorumVotes => {
                     if let Ok(decoded) = deserialize(&vec_out) {
-                        let (height, round, step, hash, locked_vote): (
+                        let (_height, round, step, _hash, locked_vote): (
                             u64,
                             u64,
                             Step,

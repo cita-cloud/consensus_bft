@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::crypto::{pubkey_to_address, Sign, Signature};
+use crate::crypto::{pubkey_to_address, Sign};
 use crate::message::{SignedFollowerVote, Step};
 use crate::types::{Address, H256};
-use bincode::serialize;
+
 use serde::{Deserialize, Serialize};
 
 use cita_logger::{debug, error, info, trace, warn};
@@ -70,7 +70,7 @@ impl RoundCollector {
 
     pub fn add(&mut self, sender: Address, sign_vote: &SignedFollowerVote) -> bool {
         let round = sign_vote.vote.round;
-        let step = sign_vote.vote.step;
+        let _step = sign_vote.vote.step;
 
         if self.round_votes.contains_key(&round) {
             self.round_votes
@@ -152,9 +152,9 @@ impl VoteSet {
 
     pub fn check(
         &self,
-        h: u64,
-        r: u64,
-        step: Step,
+        _h: u64,
+        _r: u64,
+        _step: Step,
         authorities: &[Address],
     ) -> Result<Option<H256>, &str> {
         let mut votes_by_proposal: BTreeMap<H256, u64> = BTreeMap::new();

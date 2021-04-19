@@ -12,15 +12,15 @@ use cita_types as types;
 use cita_logger as logger;
 
 #[macro_use]
-use serde_derive;
+
 #[macro_use]
 use util;
 
 use message::{BftSvrMsg, BftToCtlMsg, CtlBackBftMsg};
 use util::{micro_service_init, set_panic_handler};
 
-use anyhow::Result;
-use logger::{debug, error, info, trace, warn};
+
+use logger::{debug, error, info, warn};
 use tokio::sync::mpsc;
 
 // #[cfg(feature = "timestamp_test")]
@@ -39,7 +39,7 @@ use clap::Clap;
 use git_version::git_version;
 
 use cita_cloud_proto::common::{
-    Empty, Hash, Proposal as ProtoProposal, ProposalWithProof, SimpleResponse,
+    Empty, Proposal as ProtoProposal, ProposalWithProof, SimpleResponse,
 };
 use cita_cloud_proto::consensus::consensus_service_server::ConsensusServiceServer;
 use cita_cloud_proto::consensus::{

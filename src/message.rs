@@ -1,10 +1,10 @@
 use crate::crypto::{pubkey_to_address, CreateKey, Sign, Signature, SIGNATURE_BYTES_LEN};
 use crate::voteset::Proposal;
 use bincode;
-use cita_cloud_proto::common::Hash;
+
 use cita_cloud_proto::common::ProposalWithProof;
 use cita_cloud_proto::consensus::{
-    consensus_service_server::ConsensusService, ConsensusConfiguration,
+    ConsensusConfiguration,
 };
 use cita_types::H256;
 use hashable::Hashable;
