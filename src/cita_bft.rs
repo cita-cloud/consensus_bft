@@ -55,10 +55,7 @@ const TIMEOUT_LOW_ROUND_FEED_MULTIPLE: u32 = 23;
 //const BLOCK_TIMESTAMP_INTERVAL: u64 = 100;
 const DEFAULT_TIME_INTERVAL: u64 = 3000;
 const TIMESTAMP_JUDGE_BLOCK_INTERVAL: u64 = 200;
-const TIMESTAMP_DIFF_MAX_INTERVAL: u64 = 3000;
 
-pub type TransType = (String, Vec<u8>);
-pub type PubType = (String, Vec<u8>);
 type NilRound = (u64, u64);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -134,7 +131,7 @@ pub struct Bft {
     votes: VoteCollector,
     proposals: ProposalCollector,
     proposal: Option<H256>,
-    self_proposal: Option<H256>,
+    self_proposal: BTreeMap<u64,H256>,
     lock_round: Option<u64>,
     // locked_vote: Option<VoteSet>,
     // lock_round set, locked block means itself,else means proposal's block
@@ -225,7 +222,7 @@ impl Bft {
             votes: VoteCollector::new(),
             proposals: ProposalCollector::new(),
             proposal: None,
-            self_proposal: None,
+            self_proposal: BTreeMap::new(),
             lock_round: None,
             wal_log: RefCell::new(Wal::create(&*logpath).unwrap()),
             send_filter: BTreeMap::new(),
@@ -1506,18 +1503,23 @@ impl Bft {
                 return false;
             }
         } else {
-            if self.self_proposal.is_none() || !self.hash_proposals.contains_key(&self.self_proposal.unwrap())  {
+            let hash = self.self_proposal.get(&self.height).to_owned();
+            if hash.is_none() {
                 self.send_proposal_request();
                 return false;
             }
-            let (raw,_ ) = self.hash_proposals.get_mut(&self.self_proposal.unwrap()).unwrap(); 
-            self.proposal = self.self_proposal;
+            let hash = hash.unwrap();
+            let raw = self.hash_proposals.get_mut(&hash);
+            if raw.is_none() {
+                self.send_proposal_request();
+                return false;
+            }
+            self.proposal = Some(hash.clone());
+            let raw = raw.unwrap().0.to_owned();
             let p = Proposal::new(raw.crypt_hash());
-            
             self.proposals.add(self.height, self.round, p.clone());
-           
             let mut cp = NetworkProposal::new_with_proposal(self.height, self.round, p);
-            cp.set_raw_proposal(raw.to_owned());
+            cp.set_raw_proposal(raw);
             let sig = self.sign_msg(cp.clone());
             sign_prop.set(cp, sig);
             info!("New proposal proposal {:?}", self);
@@ -2018,7 +2020,7 @@ impl Bft {
         let hash = proposal.crypt_hash();
         self.hash_proposals
             .insert(hash, (proposal, VerifiedProposalStatus::Ok));
-        self.self_proposal = Some(hash);
+        self.self_proposal.insert(h, hash.clone());
 
         if h > self.height + 1 {
             self.height = h;
@@ -2163,17 +2165,6 @@ impl Bft {
             }
         }
     }
-
-    // fn send_proposal_and_wait(&mut self,height:u64,round:u64) {
-    //     self.send_proposal_request();
-    //     self.change_state_step(height, round, Step::ProposeAuth);
-    //     self.set_state_timeout(
-    //         height,
-    //         round,
-    //         Step::ProposeAuth,
-    //         self.params.timer.get_prevote(),
-    //     );
-    // }
 
     fn send_proposal_request(&mut self) {
         self.bft_channels
