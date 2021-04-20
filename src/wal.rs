@@ -23,32 +23,16 @@ const DELETE_FILE_INTERVAL: u64 = 8;
 
 #[derive(Debug, Clone, Copy)]
 pub enum LogType {
-    Skip = !0,
+    Skip = 0,
     Propose = 1,
-    Vote = 2,
-    State = 3,
-    PrevHash = 4,
-    Commits = 5,
-    VerifiedPropose = 6,
-    VerifiedBlock = 8,
-    AuthTxs = 9,
-    QuorumVotes = 10,
-    UnlockBlock = 11,
+    QuorumVotes = 2,
 }
 
 impl From<u8> for LogType {
     fn from(s: u8) -> LogType {
         match s {
             1 => LogType::Propose,
-            2 => LogType::Vote,
-            3 => LogType::State,
-            4 => LogType::PrevHash,
-            5 => LogType::Commits,
-            6 => LogType::VerifiedPropose,
-            8 => LogType::VerifiedBlock,
-            9 => LogType::AuthTxs,
-            10 => LogType::QuorumVotes,
-            11 => LogType::UnlockBlock,
+            2 => LogType::QuorumVotes,
             _ => LogType::Skip,
         }
     }

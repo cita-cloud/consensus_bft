@@ -15,7 +15,7 @@
 use crate::crypto::{pubkey_to_address, CreateKey, Sign, Signature, SIGNATURE_BYTES_LEN};
 use crate::message::{
     BftSvrMsg, BftToCtlMsg, CtlBackBftMsg, FollowerVote, LeaderVote, NetworkProposal,
-    SignedFollowerVote, SignedNetworkProposal, Step, VoteMsgType,
+    SignedFollowerVote, SignedNetworkProposal, Step, VoteMsgType
 };
 use crate::params::BftParams;
 use crate::types::{Address, H256};
@@ -278,7 +278,7 @@ impl Bft {
 
                 if self.pre_proc_precommit() {
                     self.change_state_step(height, round, Step::PrecommitWait);
-                    self.wal_save_state_step(height, round, Step::PrecommitWait);
+                   
                     self.set_state_timeout(
                         height,
                         round,
@@ -438,7 +438,7 @@ impl Bft {
                     self.add_leader_self_vote(height, round, Step::Precommit, self.proposal);
                     //self.add_leader_self_vote(height, round, Step::Prevote, self.proposal);
                     self.change_state_step(height, round, Step::PrecommitWait);
-                    self.wal_save_state_step(height, round, Step::PrecommitWait);
+                    //self.wal_save_state_step(height, round, Step::PrecommitWait);
                     // Give same timeout as proposal,wait for follower's precommit comming
                     self.set_state_timeout(
                         height,
@@ -615,7 +615,7 @@ impl Bft {
     fn do_commit_work(&mut self, height: u64, round: u64) {
         if self.check_and_commit_work(height, round) {
             /*wait for new status*/
-            self.wal_save_state_step(height, round, Step::Commit);
+          
             self.change_state_step(height, round, Step::Commit);
             self.set_state_timeout(
                 height,
@@ -659,11 +659,11 @@ impl Bft {
                         let vmsg: Vec<u8> = LeaderVote {
                             height,
                             round,
+                            step:Step::Precommit,
                             hash: Some(hash),
                             votes: lv,
-                        }
-                        .into();
-
+                        }.into();
+                      
                         let _ = self.wal_save_message(height, LogType::QuorumVotes, &vmsg);
                         //self.wal_save_state_step(height, round, Step::PrecommitWait);
                     }
@@ -723,6 +723,7 @@ impl Bft {
                 let lv = LeaderVote {
                     height,
                     round,
+                    step:Step::Precommit,
                     hash: Some(hash),
                     votes,
                 };
@@ -800,11 +801,13 @@ impl Bft {
 
     fn collect_votes(vote_set: &VoteSet, hash: H256) -> Vec<SignedFollowerVote> {
         let mut votes = Vec::new();
-        for (_sender, sign_vote) in &vote_set.votes_by_sender {
+        //let mut senders = Vec::new();
+        for (sender, sign_vote) in &vote_set.votes_by_sender {
             if let Some(phash) = sign_vote.vote.hash {
                 if phash != hash {
                     continue;
                 }
+               // senders.push(sender);
                 votes.push(sign_vote.to_owned());
             }
         }
@@ -831,6 +834,7 @@ impl Bft {
                     let lv = LeaderVote {
                         height,
                         round,
+                        step,
                         hash,
                         votes,
                     };
@@ -921,11 +925,6 @@ impl Bft {
         self.step = step;
     }
 
-    fn wal_save_state_step(&self, height: u64, round: u64, step: Step) -> Option<u64> {
-        let message = serialize(&(height, round, self.nil_round, step)).unwrap();
-        self.wal_save_message(height, LogType::State, &message)
-    }
-
     fn wal_save_message(&self, height: u64, ltype: LogType, msg: &[u8]) -> Option<u64> {
         self.wal_log.borrow_mut().save(height, ltype, msg).ok()
     }
@@ -946,14 +945,14 @@ impl Bft {
 
     fn check_leader_message(
         &mut self,
-        step: Step,
         lvote: &LeaderVote,
-    ) -> Result<(u64, u64, H256), EngineError> {
+    ) -> Result<(u64, u64,Step, H256), EngineError> {
         let h = lvote.height;
         let r = lvote.round;
+        let s = lvote.step;
 
         if lvote.hash.is_none() || lvote.hash.unwrap().is_zero() {
-            return Ok((h, r, H256::zero()));
+            return Ok((h, r,s, H256::zero()));
         }
 
         if h < self.height || (h == self.height && r < self.round) {
@@ -969,9 +968,11 @@ impl Bft {
             if !self.is_validator(&sender) {
                 return Err(EngineError::NotAuthorized(sender));
             }
+            
             if sign_vote.vote.height != h
                 || sign_vote.vote.round != r
                 || sign_vote.vote.hash != lvote.hash
+                || s != sign_vote.vote.step
             {
                 return Err(EngineError::InvalidSignature);
             }
@@ -985,7 +986,7 @@ impl Bft {
                     step {}, \
                     sender {:?}, \
                     hash {:?}",
-                h, r, step, sender, lvote.hash
+                h, r, s, sender, lvote.hash
             );
 
             let ret = self.votes.add(sender, &sign_vote);
@@ -994,18 +995,17 @@ impl Bft {
                 return Err(EngineError::DoubleVote(sender));
             }
         }
-        return Ok((h, r, lvote.hash.unwrap()));
+        return Ok((h, r,s, lvote.hash.unwrap()));
     }
 
     fn follower_handle_message(
         &mut self,
-        step: Step,
         net_msg: &NetworkMsg,
     ) -> Result<(u64, u64, H256), EngineError> {
         let lvote: LeaderVote =
             deserialize(&net_msg.msg).map_err(|_| EngineError::UnexpectedMessage)?;
-        let ret = self.check_leader_message(step, &lvote);
-        if let Ok((h, r, hash)) = ret {
+        let ret = self.check_leader_message(&lvote);
+        if let Ok((h, r,_s, hash)) = ret {
             if h > self.height {
                 return Err(EngineError::VoteMsgForth(h as usize));
             }
@@ -1013,28 +1013,6 @@ impl Bft {
             return Ok((h, r, hash));
         }
         Err(ret.err().unwrap())
-    }
-
-    #[allow(clippy::type_complexity)]
-    fn decode_basic_message(
-        &self,
-        content: &[u8],
-    ) -> Result<(u64, u64, Step, Address, Option<H256>, Signature), EngineError> {
-        if let Ok(decoded) = deserialize(&content[..]) {
-            let (message, signature): (Vec<u8>, &[u8]) = decoded;
-            if signature.len() != SIGNATURE_BYTES_LEN {
-                return Err(EngineError::InvalidSignature);
-            }
-            let signature = Signature::from(signature);
-            if let Ok(pubkey) = signature.recover(&message.crypt_hash()) {
-                let decoded = deserialize(&message[..]).unwrap();
-                let (h, r, step, sender, hash) = decoded;
-                if pubkey_to_address(&pubkey) == sender && self.is_validator(&sender) {
-                    return Ok((h, r, step, sender, hash, signature));
-                }
-            }
-        }
-        Err(EngineError::UnexpectedMessage)
     }
 
     fn handle_newview(&mut self, net_msg: &NetworkMsg) -> Result<(u64, u64), EngineError> {
@@ -1195,8 +1173,6 @@ impl Bft {
                     "Proc proposal unlock locked block: height: {}, proposal: {:?}",
                     height, self.proposal
                 );
-                let msg = serialize(&self.lock_round.unwrap()).unwrap();
-                let _ = self.wal_save_message(height, LogType::UnlockBlock, &msg);
                 self.clean_proposal_locked_info();
             }
             self.proposal = Some(proposal.phash);
@@ -1353,10 +1329,6 @@ impl Bft {
                             round,
                             sign_proposal.proposal.raw_proposal.clone(),
                         );
-                        if wal_flag {
-                            self.wal_save_message(height, LogType::Propose, &net_msg.msg)
-                                .unwrap();
-                        }
                         self.hash_proposals.insert(
                             sign_proposal.proposal.vote_proposal.phash,
                             (
@@ -1607,14 +1579,14 @@ impl Bft {
                 }
             }
             VoteMsgType::LeaderPrevote => {
-                let res = self.follower_handle_message(Step::Prevote, &net_msg);
+                let res = self.follower_handle_message(&net_msg);
                 warn!("------ net msg LeaderPrevote res {:?}", res);
                 if let Ok((h, r, hash)) = res {
                     self.follower_proc_prevote(h, r, hash);
                 }
             }
             VoteMsgType::LeaderPrecommit => {
-                let res = self.follower_handle_message(Step::Precommit, &net_msg);
+                let res = self.follower_handle_message(&net_msg);
                 warn!("------ net msg LeaderPrecommit res {:?}", res);
                 if let Ok((h, r, hash)) = res {
                     self.follower_proc_precommit(h, r, Some(hash));
@@ -1711,7 +1683,6 @@ impl Bft {
         }
 
         self.change_state_step(height, round, step);
-        self.wal_save_state_step(height, round, step);
         self.set_state_timeout(height, round, step, tv);
     }
 
@@ -1793,6 +1764,12 @@ impl Bft {
         }
     }
 
+    fn set_hrs(&mut self,h:u64,r:u64,s:Step) {
+        self.height = h;
+        self.round = r;
+        self.step = s;
+    }
+
     fn load_wal_log(&mut self) {
         let vec_buf = self.wal_log.borrow_mut().load();
         self.height = self.wal_log.borrow().get_cur_height();
@@ -1812,124 +1789,48 @@ impl Bft {
                     //     //     Some(compact_block),
                     //     // );
                     // }
-                }
-                LogType::Vote => {
-                    // let res = self.decode_basic_message(&vec_out[..]);
-                    // if let Ok((h, r, s, sender, hash, signature)) = res {
-                    //     self.votes.add(
-                    //         h,
-                    //         r,
-                    //         s,
-                    //         sender,
-                    //         &VoteMessage {
-                    //             proposal: hash,
-                    //             signature,
-                    //         },
-                    //     );
-                    // }
-                }
-                LogType::State => {
-                    self.handle_state(&vec_out[..]);
-                }
-                LogType::PrevHash => {}
-                LogType::Commits => {
-                    if let Ok(proof) = deserialize(&vec_out) {
-                        let proof: BftProof = proof;
-                        trace!("load_wal_log {} wal proof height: {:?}", self, proof.height);
-                        //Wself.proof.insert(proof.height as u64, proof);
+                    
+
+                    let prop = deserialize(&vec_out);
+                    if prop.is_err() {
+                        continue;
                     }
-                }
-                LogType::VerifiedPropose => {
-                    // if let Ok(decode) = deserialize(&vec_out) {
-                    //     let (vheight, vround, verified): (u64, u64, i8) = decode;
-                    //     let status: VerifiedProposalStatus = verified.into();
-                    //     trace!(
-                    //         "load_wal_log {} LogType::VerifiedPropose status {:?}",
-                    //         self,
-                    //         status
-                    //     );
-                    //     if status.is_ok() {
-                    //         self.unverified_msg.remove(&(vheight, vround));
-                    //     } else {
-                    //         self.clean_proposal_locked_info();
-                    //     }
-                    // }
-                }
-                LogType::VerifiedBlock => {
-                    //     if let Ok(decode) = deserialize(&vec_out) {
-                    //         let (vheight, vround, verified, bytes): (u64, u64, i8, Vec<u8>) =
-                    //             decode;
-                    //         let status: VerifiedProposalStatus = verified.into();
-                    //         let block = Block::try_from(&bytes).unwrap();
-                    //         if status.is_ok() {
-                    //             let bhash = block.crypt_hash();
-                    //             trace!("LogType::VerifiedBlock set block hash {:?}", bhash);
-                    //             self.verified_blocks.push((bhash, block));
-                    //             self.unverified_msg.remove(&(vheight, vround));
-                    //         } else {
-                    //             self.clean_proposal_locked_info();
-                    //         }
-                    //     }
-                }
-                LogType::AuthTxs => {
-                    // trace!("load_wal_log {} LogType::AuthTxs begin", self);
-                    // let blocktxs = BlockTxs::try_from(&vec_out);
-                    // if let Ok(blocktxs) = blocktxs {
-                    //     let height = blocktxs.get_height() as u64;
-                    //     trace!(
-                    //         "load_wal_log {} LogType::AuthTxs add height: {}",
-                    //         self,
-                    //         height
-                    //     );
-                    //     self.block_txs.insert(height+1, blocktxs);
-                    // }
-                }
+                    let prop: NetworkProposal = prop.unwrap();
 
+                    let hash = prop.vote_proposal.phash;
+                    self.hash_proposals
+                        .insert(hash, (prop.raw_proposal, VerifiedProposalStatus::Ok));
+
+                    self.proposals.add(prop.height, prop.round, prop.vote_proposal);
+                }
+                
+                
                 LogType::QuorumVotes => {
-                    if let Ok(decoded) = deserialize(&vec_out) {
-                        let (_height, round, step, _hash, locked_vote): (
-                            u64,
-                            u64,
-                            Step,
-                            H256,
-                            VoteSet,
-                        ) = decoded;
+                    let lvote = deserialize(&vec_out);
+                    if lvote.is_err() {
+                        continue;
+                    }
+                    let lvote = lvote.unwrap();
+                    let ret = self.check_leader_message( &lvote);
+                    if let Ok((h, r,s, hash)) = ret {
+                        self.set_hrs(h, r, s);
 
-                        let find_flag = {
-                            // if !self.search_history_proposal(
-                            //     height,
-                            //     self.lock_round.unwrap_or(round),
-                            //     hash,
-                            // ) {
-                            //     self.search_history_verified_block(hash)
-                            // } else {
-                            //     true
-                            // }
-                            true
-                        };
-
-                        if find_flag {
-                            info!("QuorumVotes set proposal lock {:?}", self.proposal);
-                            if step == Step::Prevote {
-                                self.lock_round = Some(round);
-                                //self.locked_vote = Some(locked_vote.clone());
+                    if self
+                        .is_round_leader(h, r, &self.params.signer.address)
+                        .unwrap_or(false) {
+                            if s == Step::Prevote {
+                                self.leader_proc_prevote(h, r, Some(hash.clone()));
                             } else {
-                                self.last_commit_round = Some(round);
+                                self.leader_proc_precommit(h, r, Some(hash.clone()));
                             }
-
-                            for (sender, vote_msg) in locked_vote.votes_by_sender {
-                                self.votes.add(sender, &vote_msg);
-                            }
+                    } else {
+                        if s == Step::Prevote {
+                            self.follower_proc_prevote(h, r, hash);
                         } else {
-                            self.set_proposal_and_block(None, None);
+                            self.follower_proc_precommit(h, r, Some(hash));
                         }
                     }
-                }
 
-                LogType::UnlockBlock => {
-                    if let Ok(decoded) = deserialize(&vec_out) {
-                        let _round: u64 = decoded;
-                        self.clean_proposal_locked_info();
                     }
                 }
             }
@@ -2059,7 +1960,18 @@ impl Bft {
                                             self.proposal = None;
                                             self.hash_proposals.remove(&hash);
                                         } else {
-                                            self.hash_proposals.get_mut(&hash).map(|res| res.1=VerifiedProposalStatus::Ok);
+
+                                            let msg: Vec<u8> = {
+                                                self.hash_proposals.get_mut(&hash).map(|res| {
+                                                    res.1=VerifiedProposalStatus::Ok;
+                                                    res.0.to_owned()
+                                                }).unwrap_or(vec!())
+                                            };
+                                            
+                                            if !msg.is_empty() {
+                                                let smsg:Vec<u8> = NetworkProposal::new(height,round,msg).into();
+                                                self.wal_save_message(height,LogType::Propose,&smsg);
+                                            }
                                             self.follower_proc_proposal(height, round);
                                         }
                                         self.bundle_op_after_proposal(height,round);
@@ -2074,7 +1986,7 @@ impl Bft {
                     }
                 },
                 net_msg = self.bft_channels.net_back_rx.recv() => {
-                    //info!("recv to network back msg {:?}",net_msg);
+                    info!("recv to network back msg {:?}",net_msg);
                     if let Some(net_msg) = net_msg {
                         self.process_network(net_msg);
                     }

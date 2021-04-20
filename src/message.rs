@@ -1,10 +1,9 @@
+use bincode;
 use crate::crypto::{pubkey_to_address, CreateKey, Sign, Signature, SIGNATURE_BYTES_LEN};
 use crate::voteset::Proposal;
-use bincode;
-
+use crate::types::{Address, H256};
 use cita_cloud_proto::common::ProposalWithProof;
 use cita_cloud_proto::consensus::ConsensusConfiguration;
-use cita_types::H256;
 use hashable::Hashable;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -217,6 +216,7 @@ impl Into<Vec<u8>> for SignedFollowerVote {
 pub struct LeaderVote {
     pub height: u64,
     pub round: u64,
+    pub step:Step,
     pub hash: Option<H256>,
     pub votes: Vec<SignedFollowerVote>,
 }
