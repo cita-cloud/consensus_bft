@@ -19,7 +19,7 @@ use toml;
 pub struct BftConfig {
     pub network_port: u16,
     pub controller_port: u16,
-    pub node_id :u64,
+    pub node_id: u64,
     // to be fix
     pub sk: String,
 }
