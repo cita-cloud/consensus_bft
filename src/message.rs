@@ -212,7 +212,7 @@ impl Into<Vec<u8>> for SignedFollowerVote {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct LeaderVote {
     pub height: u64,
     pub round: u64,

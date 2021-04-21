@@ -94,9 +94,7 @@ impl WaitTimer {
                     // put the TimeoutInfo into a hashmap, K: timeval  V: TimeoutInfo
                     timer_heap.push(tm);
                 }
-                _ => {
-                    trace!("waittimer timeout or rcv nothing");
-                }
+                _ => {}
             }
 
             if !timer_heap.is_empty() {

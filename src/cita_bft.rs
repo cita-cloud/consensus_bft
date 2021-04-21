@@ -724,6 +724,7 @@ impl Bft {
                     hash: Some(hash),
                     votes,
                 };
+                info!("gennerate proof ok {:?}", self);
                 return Some(lv.into());
             }
         }
@@ -849,10 +850,13 @@ impl Bft {
 
     fn check_proposal_proof(&self, pproof: ProposalWithProof) -> bool {
         let phash = pproof.proposal.unwrap().data.crypt_hash();
-
         let lvote: LeaderVote = deserialize(&pproof.proof).unwrap_or(LeaderVote::default());
+        info!(
+            "----- check_proposal_proof phash {:?} leader vote {:?}",
+            phash, lvote
+        );
         if !self.is_above_threshold(lvote.votes.len() as u64)
-            || !self.is_above_threshold_old(lvote.votes.len() as u64)
+            && !self.is_above_threshold_old(lvote.votes.len() as u64)
         {
             return false;
         }
@@ -864,7 +868,9 @@ impl Bft {
         let mut senders = std::collections::HashSet::new();
         for sign_vote in &lvote.votes {
             let sender = Self::design_message(sign_vote.sig.clone(), sign_vote.vote.clone());
-            if !self.is_validator(&sender) || !self.is_validator_old(&sender) {
+
+            info!("----- check_proposal_proof sender {:?}", sender);
+            if !self.is_validator(&sender) && !self.is_validator_old(&sender) {
                 return false;
             }
             if sign_vote.vote.height != h
@@ -878,6 +884,7 @@ impl Bft {
                 return false;
             }
         }
+        info!("----- check_proposal_proof ok");
         true
     }
 
@@ -1301,40 +1308,39 @@ impl Bft {
             sender
         );
 
-        let check_res = self.check_proposal_hash(&sign_proposal.proposal.vote_proposal.phash);
         self.proposals
             .add(height, round, sign_proposal.proposal.vote_proposal.clone());
 
         //self.leader_origins.insert((height, round), origin);
         if height >= self.height && height < self.height + self.auth_manage.validator_n() as u64 + 1
         {
+            let check_res = self.check_proposal_hash(&sign_proposal.proposal.vote_proposal.phash);
             debug!(
-                "Handle proposal {} add proposal h: {}, r: {}",
-                self, height, round
+                "Handle proposal {} add proposal h: {}, r: {} check_res {:?}",
+                self, height, round, check_res
             );
-            if height == self.height {
-                match check_res {
-                    Some(res) => {
-                        if !res {
-                            self.proposal = None;
-                        }
-                        return Ok((height, round));
-                    }
-                    None => {
-                        self.send_proposal_verify_req(
-                            height,
-                            round,
-                            sign_proposal.proposal.raw_proposal.clone(),
-                        );
-                        self.hash_proposals.insert(
-                            sign_proposal.proposal.vote_proposal.phash,
-                            (
-                                sign_proposal.proposal.raw_proposal.clone(),
-                                VerifiedProposalStatus::Init,
-                            ),
-                        );
-                        return Err(EngineError::InvalidTxInProposal);
-                    }
+
+            let status;
+            if check_res == Some(true) {
+                status = VerifiedProposalStatus::Ok;
+            } else {
+                status = VerifiedProposalStatus::Init;
+                self.send_proposal_verify_req(
+                    height,
+                    round,
+                    sign_proposal.proposal.raw_proposal.clone(),
+                );
+            }
+            self.hash_proposals.insert(
+                sign_proposal.proposal.vote_proposal.phash,
+                (sign_proposal.proposal.raw_proposal.clone(), status),
+            );
+
+            if height == self.height && self.round == round {
+                if check_res == Some(true) {
+                    return Ok((height, round));
+                } else {
+                    return Err(EngineError::InvalidTxInProposal);
                 }
             }
             return Err(EngineError::VoteMsgForth(height as usize));
@@ -1642,8 +1648,8 @@ impl Bft {
     fn new_round_start_with_added_time(&mut self, height: u64, round: u64, added_time: Duration) {
         self.change_state_step(height, round, Step::Propose);
         info!(
-            "new_round_start_with_added_time added time {:?}",
-            added_time
+            "new_round_start_with_added_time added time {:?} self {}",
+            added_time, self
         );
         if round == INIT_ROUND {
             self.wal_new_height(height);
@@ -1842,17 +1848,21 @@ impl Bft {
             .insert(hash, (proposal, VerifiedProposalStatus::Ok));
         self.self_proposal.insert(h, hash.clone());
 
+        warn!(
+            "--- recv_new_height_signal h: {:?} hash {:?} self {:?}",
+            h, hash, self
+        );
+
         if h == self.height
             && self.step == Step::ProposeWait
             && self
-                .is_round_leader(self.height, self.round, self.params.signer.address)
+                .is_round_leader(self.height, self.round, &self.params.signer.address)
                 .unwrap_or(false)
             && self.proposal.is_none()
         {
             self.leader_new_proposal(true);
         } else if h > self.height + 1 {
-            self.height = h;
-            self.round = INIT_ROUND;
+            self.set_hrs(h, INIT_ROUND, Step::Propose);
             self.redo_work();
         }
     }
@@ -1960,10 +1970,9 @@ impl Bft {
                                             res,
                                         );
                                         if !res {
-                                            self.proposal = None;
-                                            self.hash_proposals.remove(&hash);
+                                            //self.proposal = None;
+                                            //self.hash_proposals.remove(&hash);
                                         } else {
-
                                             let msg: Vec<u8> = {
                                                 self.hash_proposals.get_mut(&hash).map(|res| {
                                                     res.1=VerifiedProposalStatus::Ok;
@@ -1990,7 +1999,7 @@ impl Bft {
                     }
                 },
                 net_msg = self.bft_channels.net_back_rx.recv() => {
-                    info!("recv to network back msg {:?}",net_msg);
+                    info!("recv network back to bft msg {:?}",net_msg);
                     if let Some(net_msg) = net_msg {
                         self.process_network(net_msg);
                     }
