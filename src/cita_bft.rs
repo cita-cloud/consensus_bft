@@ -865,6 +865,7 @@ impl Bft {
         }
         let h = lvote.height;
         let r = lvote.round;
+
         let mut senders = std::collections::HashSet::new();
         for sign_vote in &lvote.votes {
             let sender = Self::design_message(sign_vote.sig.clone(), sign_vote.vote.clone());
@@ -885,6 +886,10 @@ impl Bft {
             }
         }
         info!("----- check_proposal_proof ok");
+
+        if h > self.height {
+            self.send_proposal_request();
+        }
         true
     }
 
@@ -1950,6 +1955,7 @@ impl Bft {
                             BftSvrMsg::PProof(pproof,tx) => {
                                 let res = self.check_proposal_proof(pproof);
                                 tx.send(res).unwrap();
+
                             }
                         }
                     }
