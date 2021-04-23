@@ -8,5 +8,5 @@ RUN /bin/sh -c set -eux;\
     rm -rf /var/lib/apt/lists/*;
 RUN cargo build --release
 FROM debian:buster-slim
-COPY --from=buildstage /build/target/release/consensus_bft /usr/bin/
-CMD ["RUST_LOG=consensus_bft=trace consensus_bft"]
+COPY --from=buildstage /build/target/release/consensus /usr/bin/
+CMD ["consensus"]

@@ -1645,15 +1645,20 @@ impl Bft {
         self.new_round_start_with_added_time(height, round, Duration::new(0, 0));
     }
 
-    fn new_round_start_with_added_time(&mut self, height: u64, round: u64, added_time: Duration) {
+    fn new_round_start_with_added_time(
+        &mut self,
+        height: u64,
+        round: u64,
+        remaining_time: Duration,
+    ) {
         self.change_state_step(height, round, Step::Propose);
         info!(
             "new_round_start_with_added_time added time {:?} self {}",
-            added_time, self
+            remaining_time, self
         );
         if round == INIT_ROUND {
             self.wal_new_height(height);
-            self.start_time = unix_now() + added_time;
+            self.start_time = unix_now() + remaining_time;
             // When this node in lower height, maybe other node's
             // Newview message already arrived
             if !self.is_only_one_node() && self.proc_new_view(height, round) {
@@ -1678,7 +1683,7 @@ impl Bft {
                     }
                 }
             }
-            tv += added_time;
+            tv += remaining_time;
         } else if self.follower_proc_proposal(height, round) {
             self.follower_prevote_send(height, round);
             step = Step::PrevoteWait;
@@ -1861,41 +1866,40 @@ impl Bft {
             && self.proposal.is_none()
         {
             self.leader_new_proposal(true);
-        } else if h > self.height + 1 {
+        } else if h > self.height + 1
+            || (h == self.height + 1
+                && (self.step != Step::CommitWait || self.step != Step::Commit))
+        {
             self.set_hrs(h, INIT_ROUND, Step::Propose);
             self.redo_work();
         }
     }
 
     fn proc_commit_res(&mut self, h: u64) {
-        let mut added_time = Duration::new(0, 0);
         let now = unix_now();
-
         info!(
             "--- now {:?} start time {:?} interval {}",
             now,
             self.start_time,
             self.params.timer.get_total_duration()
         );
-        if let Some(gone_time) = now.checked_sub(self.start_time) {
-            let config_interval = Duration::from_millis(self.params.timer.get_total_duration());
-            if h == self.height && gone_time < config_interval {
-                added_time = config_interval - gone_time;
-            }
-        }
 
+        let config_interval = Duration::from_millis(self.params.timer.get_total_duration());
+        let remaining_time = (self.start_time + config_interval)
+            .checked_sub(now)
+            .unwrap_or(Duration::new(0, 0));
         if !self
             .is_round_leader(h + 1, INIT_ROUND, &self.params.signer.address)
             .unwrap_or(false)
             || self.is_only_one_node()
         {
             self.change_state_step(self.height, self.round, Step::CommitWait);
-            self.set_state_timeout(self.height, self.round, Step::CommitWait, added_time);
+            self.set_state_timeout(self.height, self.round, Step::CommitWait, remaining_time);
             return;
         }
 
         if self.deal_old_height_when_commited(self.height) {
-            self.new_round_start_with_added_time(h + 1, INIT_ROUND, added_time);
+            self.new_round_start_with_added_time(h + 1, INIT_ROUND, remaining_time);
         }
     }
 
@@ -1959,6 +1963,14 @@ impl Bft {
                                 self.recv_new_height_signal(height,proposal);
                             },
                             CtlBackBftMsg::CheckProposalRes(height,round,res) => {
+
+
+                                // test code
+                                let mut res = res;
+                                res = true;
+
+
+
                                 let hash = self.proposals.get_proposal(height,round).map(|p| p.phash);
                                 if let Some(hash) = hash {
                                     if height == self.height && round == self.round && self.step < Step::Prevote {
@@ -1974,9 +1986,9 @@ impl Bft {
                                             //self.hash_proposals.remove(&hash);
                                         } else {
                                             let msg: Vec<u8> = {
-                                                self.hash_proposals.get_mut(&hash).map(|res| {
-                                                    res.1=VerifiedProposalStatus::Ok;
-                                                    res.0.to_owned()
+                                                self.hash_proposals.get_mut(&hash).map(|raw| {
+                                                    raw.1=VerifiedProposalStatus::Ok;
+                                                    raw.0.to_owned()
                                                 }).unwrap_or(vec!())
                                             };
 

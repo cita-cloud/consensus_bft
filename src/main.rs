@@ -12,13 +12,13 @@ use cita_types as types;
 use cita_logger as logger;
 
 #[macro_use]
-#[macro_use]
 use util;
 
 use message::{BftSvrMsg, BftToCtlMsg, CtlBackBftMsg};
 use util::{micro_service_init, set_panic_handler};
 
 use logger::{debug, error, info, warn};
+use std::str::FromStr;
 use tokio::sync::mpsc;
 
 // #[cfg(feature = "timestamp_test")]
@@ -35,6 +35,7 @@ use crate::params::{BftParams, PrivateKey};
 use crate::votetime::WaitTimer;
 use clap::Clap;
 use git_version::git_version;
+use types::{clean_0x, Address};
 
 use cita_cloud_proto::common::{
     Empty, Proposal as ProtoProposal, ProposalWithProof, SimpleResponse,
@@ -314,6 +315,11 @@ async fn run(opts: RunOpts) {
         .unwrap_or_else(|err| panic!("Error while loading config: [{}]", err));
     let config = config::BftConfig::new(&buffer);
 
+    let addr_str = std::fs::read_to_string("node_address")
+        .unwrap_or_else(|err| panic!("Error while loading config: [{}]", err));
+    let sk_str = std::fs::read_to_string("node_key")
+        .unwrap_or_else(|err| panic!("Error while loading config: [{}]", err));
+
     let (bft_tx, bft_rx) = mpsc::unbounded_channel();
     let bft_svr = BftSvr::new(bft_tx);
 
@@ -352,8 +358,13 @@ async fn run(opts: RunOpts) {
         timer_back_rx,
     };
 
-    let sk = PrivateKey::new(&config.sk);
+    let sk = PrivateKey::new(&sk_str);
     let bft_params = BftParams::new(&sk);
+
+    let addr = Address::from_str(clean_0x(&addr_str)).unwrap();
+    if bft_params.signer.address != addr {
+        panic!("node address not equal to address form sk");
+    }
     let mut bft = Bft::new(bft_params, bc);
 
     tokio::spawn(async move {
