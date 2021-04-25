@@ -8,27 +8,13 @@ mod wal;
 
 use cita_crypto as crypto;
 use cita_types as types;
-#[macro_use]
-use cita_logger as logger;
-
-#[macro_use]
-use util;
 
 use message::{BftSvrMsg, BftToCtlMsg, CtlBackBftMsg};
-use util::{micro_service_init, set_panic_handler};
+use util::{set_panic_handler};
 
-use logger::{debug, error, info, warn};
+use log::{debug, error, info, warn};
 use std::str::FromStr;
 use tokio::sync::mpsc;
-
-// #[cfg(feature = "timestamp_test")]
-// use cita_bft::SignSymbol;
-// #[cfg(feature = "timestamp_test")]
-// use cita_bft::TimeOffset;
-// use clap::App;
-// #[cfg(feature = "timestamp_test")]
-// use std::cmp::Ordering;
-// use std::{env, thread};
 
 use crate::cita_bft::{Bft, BftChannls};
 use crate::params::{BftParams, PrivateKey};
@@ -381,8 +367,6 @@ async fn run(opts: RunOpts) {
 }
 
 fn main() {
-    micro_service_init!("consensus_bft", "CITA-CLOUD:consensus:bft", false);
-
     let opts: Opts = Opts::parse();
     // You can handle information about subcommands by requesting their matches by name
     // (as below), requesting just the name used, or both at the same time
@@ -392,6 +376,7 @@ fn main() {
             println!("homepage: {}", GIT_HOMEPAGE);
         }
         SubCommand::Run(opts) => {
+            log4rs::init_file("consensus-log4rs.yaml", Default::default()).unwrap();
             run(opts);
         }
     }

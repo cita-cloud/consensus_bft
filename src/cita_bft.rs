@@ -27,7 +27,7 @@ use bincode::{deserialize, serialize};
 use cita_cloud_proto::common::{Proposal as ProtoProposal, ProposalWithProof};
 use cita_cloud_proto::network::NetworkMsg;
 use cita_directories::DataPath;
-use cita_logger::{debug, error, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use engine::{unix_now, EngineError, Mismatch};
 use hashable::Hashable;
 use proof::BftProof;
@@ -1412,12 +1412,14 @@ impl Bft {
         } else {
             let hash = self.self_proposal.get(&self.height).to_owned();
             if hash.is_none() {
+                info!("New proposal self_proposal is none {}", self);
                 self.send_proposal_request();
                 return false;
             }
             let hash = hash.unwrap();
             let raw = self.hash_proposals.get_mut(&hash);
             if raw.is_none() {
+                info!("New proposal hash proposal is none {}", self);
                 self.send_proposal_request();
                 return false;
             }

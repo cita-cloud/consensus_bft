@@ -11,7 +11,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
 bincode = "1.3"
 
-cita-logger = "0.1.1"
+log = "*"
+log4rs = { version = "*", features = ["gzip"] }
 util = { git = "https://github.com/citahub/cita-common.git", branch = "develop" }
 cita-types = { git = "https://github.com/citahub/cita-common.git", branch = "develop" }
 

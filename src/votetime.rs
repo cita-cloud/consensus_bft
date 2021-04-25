@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::message::Step;
-use cita_logger::{debug, error, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use min_max_heap::MinMaxHeap;
 use std::cmp::Ordering;
 use std::time::{Duration, Instant};

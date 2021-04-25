@@ -18,7 +18,7 @@ use crate::types::{Address, H256};
 
 use serde::{Deserialize, Serialize};
 
-use cita_logger::{debug, error, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use hashable::Hashable;
 use lru_cache::LruCache;
 use std::collections::BTreeMap;

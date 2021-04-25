@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use cita_logger::{debug, error, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use std::collections::{btree_map::Entry, BTreeMap};
 use std::fs::{read_dir, DirBuilder, File, OpenOptions};
 use std::io::{self, Read, Seek, Write};
