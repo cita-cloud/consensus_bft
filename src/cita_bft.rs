@@ -1035,6 +1035,9 @@ impl Bft {
         if h < self.height {
             return Err(EngineError::VoteMsgDelay(h as usize));
         }
+        if h > self.height {
+            self.send_proposal_request();
+        }
         let sender = Self::design_message(fvote.sig.clone(), fvote.vote.clone());
         trace!("handle_newview sender {:?}", sender);
         if !self.is_validator(&sender) {
