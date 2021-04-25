@@ -2033,7 +2033,7 @@ impl Bft {
         }
     }
 
-    fn send_proposal_request(&mut self) {
+    fn send_proposal_request(&self) {
         self.bft_channels
             .to_ctl_tx
             .send(BftToCtlMsg::GetProposalReq)
