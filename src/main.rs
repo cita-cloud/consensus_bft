@@ -10,7 +10,7 @@ use cita_crypto as crypto;
 use cita_types as types;
 
 use message::{BftSvrMsg, BftToCtlMsg, CtlBackBftMsg};
-use util::{set_panic_handler};
+use util::set_panic_handler;
 
 use log::{debug, error, info, warn};
 use std::str::FromStr;
@@ -367,6 +367,7 @@ async fn run(opts: RunOpts) {
 }
 
 fn main() {
+    set_panic_handler();
     let opts: Opts = Opts::parse();
     // You can handle information about subcommands by requesting their matches by name
     // (as below), requesting just the name used, or both at the same time

@@ -1,5 +1,5 @@
-use crate::crypto::{pubkey_to_address, CreateKey, Sign, Signature, SIGNATURE_BYTES_LEN};
-use crate::types::{Address, H256};
+use crate::crypto::Signature;
+use crate::types::H256;
 use crate::voteset::Proposal;
 use bincode;
 use cita_cloud_proto::common::ProposalWithProof;
@@ -35,11 +35,11 @@ pub struct Vote {
     pub signature: Vec<u8>,
 }
 
-impl Vote {
-    pub fn new() -> Self {
-        Vote::default()
-    }
-}
+// impl Vote {
+//     pub fn new() -> Self {
+//         Vote::default()
+//     }
+// }
 
 impl Into<Vec<u8>> for Vote {
     fn into(self) -> Vec<u8> {

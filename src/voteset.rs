@@ -18,8 +18,8 @@ use crate::types::{Address, H256};
 
 use serde::{Deserialize, Serialize};
 
-use log::{debug, error, info, trace, warn};
 use hashable::Hashable;
+use log::trace;
 use lru_cache::LruCache;
 use std::collections::BTreeMap;
 

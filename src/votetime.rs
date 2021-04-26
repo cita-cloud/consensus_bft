@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::message::Step;
-use log::{debug, error, info, trace, warn};
+// use log::{debug, error, info, trace, warn};
 use min_max_heap::MinMaxHeap;
 use std::cmp::Ordering;
 use std::time::{Duration, Instant};
@@ -102,7 +102,7 @@ impl WaitTimer {
 
                 // if some timers are set as the same time, send timeout messages and pop them
                 while !timer_heap.is_empty() && now >= timer_heap.peek_min().unwrap().timeval {
-                    self.timer_notify.send(timer_heap.pop_min().unwrap());
+                    let _ = self.timer_notify.send(timer_heap.pop_min().unwrap());
                 }
             }
         }

@@ -82,13 +82,13 @@ impl BftTimer {
         }
     }
 
-    pub fn get_precommit(&self) -> Duration {
-        if self.total_duration.get() < LOW_LIMIT_TIMEVAL {
-            Duration::from_millis(LOW_LIMIT_TIMEVAL)
-        } else {
-            Duration::from_millis(self.total_duration.get() * self.precommit.0 / self.precommit.1)
-        }
-    }
+    // pub fn get_precommit(&self) -> Duration {
+    //     if self.total_duration.get() < LOW_LIMIT_TIMEVAL {
+    //         Duration::from_millis(LOW_LIMIT_TIMEVAL)
+    //     } else {
+    //         Duration::from_millis(self.total_duration.get() * self.precommit.0 / self.precommit.1)
+    //     }
+    // }
 
     #[allow(dead_code)]
     fn get_commit(&self) -> Duration {

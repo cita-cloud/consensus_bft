@@ -23,14 +23,14 @@ use crate::voteset::{Proposal, ProposalCollector, VoteCollector, VoteSet};
 use crate::votetime::TimeoutInfo;
 use crate::wal::{LogType, Wal};
 use authority_manage::AuthorityManage;
-use bincode::{deserialize, serialize};
+use bincode::deserialize;
 use cita_cloud_proto::common::{Proposal as ProtoProposal, ProposalWithProof};
 use cita_cloud_proto::network::NetworkMsg;
 use cita_directories::DataPath;
-use log::{debug, error, info, trace, warn};
 use engine::{unix_now, EngineError, Mismatch};
 use hashable::Hashable;
-use proof::BftProof;
+use log::{debug, error, info, trace, warn};
+
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::convert::{From, Into};
@@ -55,30 +55,6 @@ enum VerifiedProposalStatus {
     Ok,
     Err,
     Init,
-}
-
-impl VerifiedProposalStatus {
-    pub fn value(self) -> i8 {
-        match self {
-            VerifiedProposalStatus::Ok => 1,
-            VerifiedProposalStatus::Err => -1,
-            VerifiedProposalStatus::Init => 0,
-        }
-    }
-
-    pub fn is_ok(self) -> bool {
-        match self {
-            VerifiedProposalStatus::Ok => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_init(self) -> bool {
-        match self {
-            VerifiedProposalStatus::Init => true,
-            _ => false,
-        }
-    }
 }
 
 impl From<i8> for VerifiedProposalStatus {
@@ -353,29 +329,6 @@ impl Bft {
 
     fn search_history_proposal(&mut self, checked_hash: H256) -> bool {
         self.hash_proposals.contains_key(&checked_hash)
-
-        // if let Some(proposal) = self.proposals.get_proposal(height, round) {
-        //     if let Ok(block) = pro_block {
-        //         let bhash: H256 = block.crypt_hash();
-        //         if bhash == checked_hash {
-        //             self.set_proposal_and_block(Some(bhash), Some(block));
-        //             return true;
-        //         } else {
-        //             warn!(
-        //                 "History proposal not find queal to prevote's proposal,
-        //             block proposal {:?}, checked hash {:?}",
-        //                 bhash, checked_hash
-        //             );
-        //         }
-        //     } else {
-        //         error!(
-        //             "Compact block can't format from block h {},r {}",
-        //             height, round
-        //         );
-        //     }
-        // }
-
-        // false
     }
 
     fn leader_proc_prevote(&mut self, height: u64, round: u64, _hash: Option<H256>) -> bool {
@@ -530,9 +483,9 @@ impl Bft {
         false
     }
 
-    fn get_faulty_limit_number(&self) -> u64 {
-        self.auth_manage.validator_n() as u64 / 3
-    }
+    // fn get_faulty_limit_number(&self) -> u64 {
+    //     self.auth_manage.validator_n() as u64 / 3
+    // }
 
     fn is_above_threshold(&self, n: u64) -> bool {
         n * 3 > self.auth_manage.validator_n() as u64 * 2
@@ -800,7 +753,7 @@ impl Bft {
     fn collect_votes(vote_set: &VoteSet, hash: H256) -> Vec<SignedFollowerVote> {
         let mut votes = Vec::new();
         //let mut senders = Vec::new();
-        for (sender, sign_vote) in &vote_set.votes_by_sender {
+        for (_sender, sign_vote) in &vote_set.votes_by_sender {
             if let Some(phash) = sign_vote.vote.hash {
                 if phash != hash {
                     continue;
@@ -940,16 +893,6 @@ impl Bft {
 
     fn wal_new_height(&self, height: u64) -> Option<u64> {
         self.wal_log.borrow_mut().set_height(height).ok()
-    }
-
-    fn handle_state(&mut self, msg: &[u8]) {
-        if let Ok(decoded) = deserialize(msg) {
-            let (h, r, nr, s) = decoded;
-            self.height = h;
-            self.round = r;
-            self.nil_round = nr;
-            self.step = s;
-        }
     }
 
     fn check_leader_message(
@@ -1141,23 +1084,6 @@ impl Bft {
         Err(EngineError::UnexpectedMessage)
     }
 
-    // fn handle_message(
-    //     &mut self,
-    //     message: &[u8],
-    // ) -> Result<(VoteType, u64, u64, Step, Option<H256>), EngineError> {
-    //     if let Ok(decode) = deserialize(&message[..]) {
-    //         let (vtype, content): (VoteType, Vec<u8>) = decode;
-    //         if vtype == VoteType::FollowerTOLeaderVote {
-    //             return self.leader_handle_message(&content[..]);
-    //         } else if vtype == VoteType::LeaderAggregateVote {
-    //             return self.follower_handle_message(&content[..]);
-    //         } else {
-    //             return self.uniform_handle_newview(&content[..]);
-    //         }
-    //     }
-    //     Err(EngineError::UnexpectedMessage)
-    // }
-
     fn follower_proc_proposal(&mut self, height: u64, round: u64) -> bool {
         let proposal = self.proposals.get_proposal(height, round);
         if let Some(proposal) = proposal {
@@ -1194,11 +1120,6 @@ impl Bft {
         false
     }
 
-    fn set_proposal_and_block(&mut self, _hash: Option<H256>, _blk: Option<Vec<u8>>) {
-        // self.proposal = hash;
-        // self.locked_block = blk;
-    }
-
     fn send_proposal_verify_req(&self, height: u64, round: u64, raw_proposal: Vec<u8>) {
         let _ = self
             .bft_channels
@@ -1229,24 +1150,6 @@ impl Bft {
         }
         None
     }
-
-    // fn recheck_saved_proposal(
-    //     &mut self,
-    //     height: u64,
-    //     round: u64,
-    // ) -> bool {
-    //     let res =self.proposals.get_proposal(height, round);
-    //     if let Some(proposal) = res {
-    //         let res = self.hash_proposals.get_mut(&proposal.phash).cloned();
-    //         if let Some((raw_proposal,_)) = res  {
-    //             self.send_proposal_verify_req(height, round, raw_proposal.to_owned());
-    //             self.change_state_step(height, round, Step::ProposeAuth);
-    //             self.set_state_timeout(height, round, Step::ProposeAuth, self.params.timer.get_propose());
-    //             return true;
-    //         }
-    //     }
-    //     false
-    // }
 
     fn handle_proposal(
         &mut self,
@@ -1797,16 +1700,6 @@ impl Bft {
             match log_type {
                 LogType::Skip => {}
                 LogType::Propose => {
-                    // let res = self.uniform_handle_proposal(&vec_out[..], false);
-                    // if let Ok((_h, _r)) = res {
-                    //     // let proposal = self.proposals.get_proposal(h, r).unwrap();
-                    //     // let compact_block = CompactBlock::try_from(&proposal.block).unwrap();
-                    //     // self.set_proposal_and_block(
-                    //     //     Some(compact_block.crypt_hash()),
-                    //     //     Some(compact_block),
-                    //     // );
-                    // }
-
                     let prop = deserialize(&vec_out);
                     if prop.is_err() {
                         continue;
@@ -1973,12 +1866,11 @@ impl Bft {
                             CtlBackBftMsg::GetProposalRes(height,proposal) => {
                                 self.recv_new_height_signal(height,proposal);
                             },
-                            CtlBackBftMsg::CheckProposalRes(height,round,res) => {
+                            CtlBackBftMsg::CheckProposalRes(height,round,_res) => {
 
 
-                                // test code
-                                let mut res = res;
-                                res = true;
+                                // test code,tobe removed
+                                let res = true;
 
 
 
