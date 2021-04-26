@@ -119,7 +119,7 @@ impl StepCollector {
 }
 
 //1. sender's votemessage 2. proposal'hash count
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct VoteSet {
     pub votes_by_sender: BTreeMap<Address, SignedFollowerVote>,
     pub votes_by_proposal: BTreeMap<H256, u64>,
@@ -128,11 +128,7 @@ pub struct VoteSet {
 
 impl VoteSet {
     pub fn new() -> Self {
-        VoteSet {
-            votes_by_sender: BTreeMap::new(),
-            votes_by_proposal: BTreeMap::new(),
-            count: 0,
-        }
+        VoteSet::default()
     }
 
     //just add ,not check

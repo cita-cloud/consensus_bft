@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use serde_derive::Deserialize;
-use toml;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct BftConfig {

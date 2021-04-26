@@ -1,13 +1,21 @@
 use crate::crypto::Signature;
 use crate::types::H256;
 use crate::voteset::Proposal;
-use bincode;
 use cita_cloud_proto::common::ProposalWithProof;
 use cita_cloud_proto::consensus::ConsensusConfiguration;
 use hashable::Hashable;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
+macro_rules! impl_from {
+    ($myty : ty) => {
+        impl From<$myty> for Vec<u8> {
+            fn from(v: $myty) -> Self {
+                bincode::serialize(&v).unwrap()
+            }
+        }
+    };
+}
 #[derive(Debug)]
 pub enum BftSvrMsg {
     Conf(ConsensusConfiguration),
@@ -41,12 +49,6 @@ pub struct Vote {
 //     }
 // }
 
-impl Into<Vec<u8>> for Vote {
-    fn into(self) -> Vec<u8> {
-        bincode::serialize(&self).unwrap()
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct SignedNetworkProposal {
     pub proposal: NetworkProposal,
@@ -62,13 +64,6 @@ impl SignedNetworkProposal {
         self.sig = sig;
     }
 }
-
-impl Into<Vec<u8>> for SignedNetworkProposal {
-    fn into(self) -> Vec<u8> {
-        bincode::serialize(&self).unwrap()
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct NetworkProposal {
     pub height: u64,
@@ -79,31 +74,30 @@ pub struct NetworkProposal {
 
 impl NetworkProposal {
     pub fn new(h: u64, r: u64, raw: Vec<u8>) -> Self {
-        let mut cp = NetworkProposal::default();
-        cp.height = h;
-        cp.round = r;
-        let phash = raw.crypt_hash();
-        cp.raw_proposal = raw;
-        cp.vote_proposal.phash = phash;
-        cp
+        let vote_proposal = Proposal {
+            phash: raw.crypt_hash(),
+            lock_round: None,
+            lock_votes: None,
+        };
+        NetworkProposal {
+            height: h,
+            round: r,
+            vote_proposal,
+            raw_proposal: raw,
+        }
     }
 
     pub fn new_with_proposal(h: u64, r: u64, p: Proposal) -> Self {
-        let mut cp = NetworkProposal::default();
-        cp.height = h;
-        cp.round = r;
-        cp.vote_proposal = p;
-        cp
+        Self {
+            height: h,
+            round: r,
+            vote_proposal: p,
+            raw_proposal: vec![],
+        }
     }
 
     pub fn set_raw_proposal(&mut self, p: Vec<u8>) {
         self.raw_proposal = p;
-    }
-}
-
-impl Into<Vec<u8>> for NetworkProposal {
-    fn into(self) -> Vec<u8> {
-        bincode::serialize(&self).unwrap()
     }
 }
 
@@ -131,16 +125,16 @@ impl From<&str> for VoteMsgType {
     }
 }
 
-impl Into<&str> for VoteMsgType {
-    fn into(self) -> &'static str {
-        match self {
-            Self::Proposal => "proposal",
-            Self::Prevote => "prevote",
-            Self::Precommit => "precommit",
-            Self::LeaderPrevote => "lprevote",
-            Self::LeaderPrecommit => "lprecommit",
-            Self::NewView => "newview",
-            Self::Noop => "noop",
+impl From<VoteMsgType> for &str {
+    fn from(v: VoteMsgType) -> Self {
+        match v {
+            VoteMsgType::Proposal => "proposal",
+            VoteMsgType::Prevote => "prevote",
+            VoteMsgType::Precommit => "precommit",
+            VoteMsgType::LeaderPrevote => "lprevote",
+            VoteMsgType::LeaderPrecommit => "lprecommit",
+            VoteMsgType::NewView => "newview",
+            VoteMsgType::Noop => "noop",
         }
     }
 }
@@ -193,25 +187,11 @@ pub struct FollowerVote {
     pub step: Step,
     pub hash: Option<H256>,
 }
-
-impl Into<Vec<u8>> for FollowerVote {
-    fn into(self) -> Vec<u8> {
-        bincode::serialize(&self).unwrap()
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct SignedFollowerVote {
     pub vote: FollowerVote,
     pub sig: Signature,
 }
-
-impl Into<Vec<u8>> for SignedFollowerVote {
-    fn into(self) -> Vec<u8> {
-        bincode::serialize(&self).unwrap()
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct LeaderVote {
     pub height: u64,
@@ -221,8 +201,9 @@ pub struct LeaderVote {
     pub votes: Vec<SignedFollowerVote>,
 }
 
-impl Into<Vec<u8>> for LeaderVote {
-    fn into(self) -> Vec<u8> {
-        bincode::serialize(&self).unwrap()
-    }
-}
+impl_from!(Vote);
+impl_from!(SignedNetworkProposal);
+impl_from!(NetworkProposal);
+impl_from!(FollowerVote);
+impl_from!(SignedFollowerVote);
+impl_from!(LeaderVote);

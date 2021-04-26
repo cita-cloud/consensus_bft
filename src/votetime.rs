@@ -88,13 +88,10 @@ impl WaitTimer {
                 Duration::from_secs(100)
             };
 
-            match tokio::time::timeout(timeout, self.timer_seter.recv()).await {
-                Ok(Some(tm)) => {
-                    // put the timeval into a timerheap
-                    // put the TimeoutInfo into a hashmap, K: timeval  V: TimeoutInfo
-                    timer_heap.push(tm);
-                }
-                _ => {}
+            if let Ok(Some(tm)) = tokio::time::timeout(timeout, self.timer_seter.recv()).await {
+                // put the timeval into a timerheap
+                // put the TimeoutInfo into a hashmap, K: timeval  V: TimeoutInfo
+                timer_heap.push(tm);
             }
 
             if !timer_heap.is_empty() {

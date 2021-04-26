@@ -694,7 +694,7 @@ impl Bft {
                     let pproof = ProposalWithProof {
                         proposal: Some(ProtoProposal {
                             height,
-                            data: raw_proposal.to_owned(),
+                            data: raw_proposal,
                         }),
                         proof,
                     };
@@ -753,7 +753,7 @@ impl Bft {
     fn collect_votes(vote_set: &VoteSet, hash: H256) -> Vec<SignedFollowerVote> {
         let mut votes = Vec::new();
         //let mut senders = Vec::new();
-        for (_sender, sign_vote) in &vote_set.votes_by_sender {
+        for sign_vote in vote_set.votes_by_sender.values() {
             if let Some(phash) = sign_vote.vote.hash {
                 if phash != hash {
                     continue;
@@ -774,36 +774,39 @@ impl Bft {
             }
         };
 
-        if hash.is_some() && !hash.unwrap().is_zero() {
-            let send_votes = self
-                .votes
-                .get_voteset(height, round, step)
-                .map(|vote_set| Self::collect_votes(&vote_set, hash.unwrap()));
+        match hash {
+            Some(hash) if !hash.is_zero() => {
+                let send_votes = self
+                    .votes
+                    .get_voteset(height, round, step)
+                    .map(|vote_set| Self::collect_votes(&vote_set, hash));
 
-            if let Some(votes) = send_votes {
-                if self.is_above_threshold(votes.len() as u64) {
-                    let lv = LeaderVote {
-                        height,
-                        round,
-                        step,
-                        hash,
-                        votes,
-                    };
-                    let lv_data: Vec<u8> = lv.into();
-                    self.wal_save_message(height, LogType::QuorumVotes, &lv_data);
-                    self.send_raw_net_msg(net_msg_type.into(), 0, lv_data)
-                } else {
-                    error!("Can't be here, Why vote is Not enough {:?}", votes.len());
+                if let Some(votes) = send_votes {
+                    if self.is_above_threshold(votes.len() as u64) {
+                        let lv = LeaderVote {
+                            height,
+                            round,
+                            step,
+                            hash: Some(hash),
+                            votes,
+                        };
+                        let lv_data: Vec<u8> = lv.into();
+                        self.wal_save_message(height, LogType::QuorumVotes, &lv_data);
+                        self.send_raw_net_msg(net_msg_type.into(), 0, lv_data)
+                    } else {
+                        error!("Can't be here, Why vote is Not enough {:?}", votes.len());
+                    }
                 }
             }
-        } else {
-            self.send_raw_net_msg(net_msg_type.into(), 0, LeaderVote::default());
+            _ => {
+                self.send_raw_net_msg(net_msg_type.into(), 0, LeaderVote::default());
+            }
         }
     }
 
     fn check_proposal_proof(&self, pproof: ProposalWithProof) -> bool {
         let phash = pproof.proposal.unwrap().data.crypt_hash();
-        let lvote: LeaderVote = deserialize(&pproof.proof).unwrap_or(LeaderVote::default());
+        let lvote: LeaderVote = deserialize(&pproof.proof).unwrap_or_default();
         info!(
             "----- check_proposal_proof phash {:?} leader vote {:?}",
             phash, lvote
@@ -947,7 +950,7 @@ impl Bft {
                 return Err(EngineError::DoubleVote(sender));
             }
         }
-        return Ok((h, r, s, lvote.hash.unwrap()));
+        Ok((h, r, s, lvote.hash.unwrap()))
     }
 
     fn follower_handle_message(
@@ -1244,7 +1247,7 @@ impl Bft {
             }
             self.hash_proposals.insert(
                 sign_proposal.proposal.vote_proposal.phash,
-                (sign_proposal.proposal.raw_proposal.clone(), status),
+                (sign_proposal.proposal.raw_proposal, status),
             );
 
             if height == self.height && self.round == round {
@@ -1326,7 +1329,7 @@ impl Bft {
                 self.send_proposal_request();
                 return false;
             }
-            self.proposal = Some(hash.clone());
+            self.proposal = Some(*hash);
             let raw = raw.unwrap().0.to_owned();
             let p = Proposal::new(raw.crypt_hash());
             self.proposals.add(self.height, self.round, p.clone());
@@ -1627,7 +1630,7 @@ impl Bft {
                         self.follower_proc_prevote(
                             height,
                             round,
-                            self.proposal.unwrap_or(H256::default()),
+                            self.proposal.unwrap_or_default(),
                         );
                     }
                 }
@@ -1729,16 +1732,14 @@ impl Bft {
                             .unwrap_or(false)
                         {
                             if s == Step::Prevote {
-                                self.leader_proc_prevote(h, r, Some(hash.clone()));
+                                self.leader_proc_prevote(h, r, Some(hash));
                             } else {
-                                self.leader_proc_precommit(h, r, Some(hash.clone()));
+                                self.leader_proc_precommit(h, r, Some(hash));
                             }
+                        } else if s == Step::Prevote {
+                            self.follower_proc_prevote(h, r, hash);
                         } else {
-                            if s == Step::Prevote {
-                                self.follower_proc_prevote(h, r, hash);
-                            } else {
-                                self.follower_proc_precommit(h, r, Some(hash));
-                            }
+                            self.follower_proc_precommit(h, r, Some(hash));
                         }
                     }
                 }
@@ -1754,7 +1755,7 @@ impl Bft {
         let hash = proposal.crypt_hash();
         self.hash_proposals
             .insert(hash, (proposal, VerifiedProposalStatus::Ok));
-        self.self_proposal.insert(h, hash.clone());
+        self.self_proposal.insert(h, hash);
 
         warn!(
             "--- recv_new_height_signal h: {:?} hash {:?} self {:?}",
@@ -1790,7 +1791,7 @@ impl Bft {
         let config_interval = Duration::from_millis(self.params.timer.get_total_duration());
         let remaining_time = (self.start_time + config_interval)
             .checked_sub(now)
-            .unwrap_or(Duration::new(0, 0));
+            .unwrap_or_else(|| Duration::new(0, 0));
         if !self
             .is_round_leader(h + 1, INIT_ROUND, &self.params.signer.address)
             .unwrap_or(false)
@@ -1888,12 +1889,12 @@ impl Bft {
                                             //self.proposal = None;
                                             //self.hash_proposals.remove(&hash);
                                         } else {
-                                            let msg: Vec<u8> = {
+                                            let msg: Vec<u8> =
                                                 self.hash_proposals.get_mut(&hash).map(|raw| {
                                                     raw.1=VerifiedProposalStatus::Ok;
                                                     raw.0.to_owned()
-                                                }).unwrap_or(vec!())
-                                            };
+                                                }).unwrap_or_default();
+
 
                                             if !msg.is_empty() {
                                                 let smsg:Vec<u8> = NetworkProposal::new(height,round,msg).into();
