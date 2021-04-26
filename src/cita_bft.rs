@@ -885,9 +885,7 @@ impl Bft {
             round,
             step
         );
-        self.height = height;
-        self.round = round;
-        self.step = step;
+        self.set_hrs(height, round, step);
     }
 
     fn wal_save_message(&self, height: u64, ltype: LogType, msg: &[u8]) -> Option<u64> {
@@ -906,12 +904,16 @@ impl Bft {
         let r = lvote.round;
         let s = lvote.step;
 
-        if lvote.hash.is_none() || lvote.hash.unwrap().is_zero() {
-            return Ok((h, r, s, H256::zero()));
-        }
-
         if h < self.height || (h == self.height && r < self.round) {
             return Err(EngineError::VoteMsgDelay(r as usize));
+        }
+
+        if h > self.height {
+            return Err(EngineError::VoteMsgForth(h as usize));
+        }
+
+        if lvote.hash.is_none() || lvote.hash.unwrap().is_zero() {
+            return Ok((h, r, s, H256::zero()));
         }
 
         if !self.is_above_threshold(lvote.votes.len() as u64) {
@@ -961,9 +963,6 @@ impl Bft {
             deserialize(&net_msg.msg).map_err(|_| EngineError::UnexpectedMessage)?;
         let ret = self.check_leader_message(&lvote);
         if let Ok((h, r, _s, hash)) = ret {
-            if h > self.height {
-                return Err(EngineError::VoteMsgForth(h as usize));
-            }
             self.wal_save_message(h, LogType::QuorumVotes, &net_msg.msg);
             return Ok((h, r, hash));
         }
