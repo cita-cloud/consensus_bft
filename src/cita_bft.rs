@@ -154,6 +154,8 @@ impl Bft {
     ) -> Bft {
         let logpath = DataPath::wal_path();
         info!("start cita-bft log {}", logpath);
+        let auth_manage = AuthorityManage::new();
+        let is_consensus_node = auth_manage.validators.contains(&params.signer.address);
         Bft {
             // pub_sender: s,
             // timer_seter: ts,
@@ -173,8 +175,8 @@ impl Bft {
             send_filter: BTreeMap::new(),
             last_commit_round: None,
             start_time: unix_now(),
-            auth_manage: AuthorityManage::new(),
-            is_consensus_node: false,
+            auth_manage,
+            is_consensus_node,
             leader_origins: BTreeMap::new(),
             bft_channels,
         }
@@ -1871,11 +1873,8 @@ impl Bft {
                             },
                             CtlBackBftMsg::CheckProposalRes(height,round,_res) => {
 
-
                                 // test code,tobe removed
                                 let res = true;
-
-
 
                                 let hash = self.proposals.get_proposal(height,round).map(|p| p.phash);
                                 if let Some(hash) = hash {
@@ -1918,10 +1917,11 @@ impl Bft {
                 },
                 net_msg = self.bft_channels.net_back_rx.recv() => {
                     info!("recv network back to bft msg {:?}",net_msg);
-                    if let Some(net_msg) = net_msg {
+                    if !self.is_consensus_node {
+                        continue;
+                    } else if let Some(net_msg) = net_msg {
                         self.process_network(net_msg);
                     }
-
                 },
                 tminfo = self.bft_channels.timer_back_rx.recv() => {
                     //info!("recv to timer back msg {:?}",tminfo);
