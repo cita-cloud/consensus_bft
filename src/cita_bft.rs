@@ -1298,11 +1298,14 @@ impl Bft {
 
         if let Some(lock_round) = self.lock_round {
             if let Some(proposal) = self.proposals.get_proposal(self.height, lock_round) {
-                if self.search_history_proposal(proposal.phash) {
+                let raw = self.hash_proposals.get_mut(&proposal.phash).cloned();
+                if let Some((raw, _)) = raw {
                     self.proposal = Some(proposal.phash);
                     self.proposals
                         .add(self.height, self.round, proposal.clone());
-                    let cp = NetworkProposal::new_with_proposal(self.height, self.round, proposal);
+                    let mut cp =
+                        NetworkProposal::new_with_proposal(self.height, self.round, proposal);
+                    cp.set_raw_proposal(raw);
                     let sig = self.sign_msg(cp.clone());
                     sign_prop.set(cp, sig);
                     info!("New proposal proposal lock block {:?}", self);
