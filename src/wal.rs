@@ -242,6 +242,9 @@ impl Wal {
                 }
                 index += bodylen;
                 let mut crc = crc.clone();
+
+                warn!("---------- load type {}",mtype);
+                
                 crc.update(&vec_buf[index..index + bodylen]);
                 let check_sum = crc.finalize();
                 if check_sum != saved_crc {
