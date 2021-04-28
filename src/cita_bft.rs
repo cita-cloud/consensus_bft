@@ -108,7 +108,7 @@ pub struct Bft {
     start_time: Duration,
     auth_manage: AuthorityManage,
     is_consensus_node: bool,
-    leader_origins: BTreeMap<(u64, u64), u32>,
+    leader_origins: BTreeMap<(u64, u64), u64>,
 
     bft_channels: BftChannls,
 }
@@ -157,9 +157,6 @@ impl Bft {
         let auth_manage = AuthorityManage::new();
         let is_consensus_node = auth_manage.validators.contains(&params.signer.address);
         Bft {
-            // pub_sender: s,
-            // timer_seter: ts,
-            // receiver: r,
             params,
             height: 0,
             round: INIT_ROUND,
@@ -731,12 +728,24 @@ impl Bft {
             step,
             hash
         );
-        let net_msg_type = {
+        let (net_msg_type, origin) = {
             match step {
-                Step::Prevote => VoteMsgType::Prevote,
-                Step::Precommit => VoteMsgType::Precommit,
-                Step::NewView => VoteMsgType::NewView,
-                _ => VoteMsgType::Noop,
+                Step::Prevote => (
+                    VoteMsgType::Prevote,
+                    self.leader_origins
+                        .get(&(height, round))
+                        .cloned()
+                        .unwrap_or(0),
+                ),
+                Step::Precommit => (
+                    VoteMsgType::Precommit,
+                    self.leader_origins
+                        .get(&(height, round))
+                        .cloned()
+                        .unwrap_or(0),
+                ),
+                Step::NewView => (VoteMsgType::NewView, 0),
+                _ => (VoteMsgType::Noop, 0),
             }
         };
 
@@ -749,7 +758,7 @@ impl Bft {
 
         let sig = self.sign_msg(vote.clone());
         let sv = SignedFollowerVote { vote, sig };
-        self.send_raw_net_msg(net_msg_type.into(), 0, sv);
+        self.send_raw_net_msg(net_msg_type.into(), origin, sv);
     }
 
     fn collect_votes(vote_set: &VoteSet, hash: H256) -> Vec<SignedFollowerVote> {
@@ -1155,12 +1164,8 @@ impl Bft {
         None
     }
 
-    fn handle_proposal(
-        &mut self,
-        net_msg: &NetworkMsg,
-        wal_flag: bool,
-    ) -> Result<(u64, u64), EngineError> {
-        trace!("Handle proposal {} begin wal_flag: {}", self, wal_flag);
+    fn handle_proposal(&mut self, net_msg: &NetworkMsg) -> Result<(u64, u64), EngineError> {
+        trace!("Handle proposal begin {} ", self);
         let sign_proposal: SignedNetworkProposal =
             deserialize(&net_msg.msg).map_err(|_| EngineError::UnexpectedMessage)?;
 
@@ -1226,7 +1231,7 @@ impl Bft {
         self.proposals
             .add(height, round, sign_proposal.proposal.vote_proposal.clone());
 
-        //self.leader_origins.insert((height, round), origin);
+        self.leader_origins.insert((height, round), net_msg.origin);
         if height >= self.height && height < self.height + self.auth_manage.validator_n() as u64 + 1
         {
             let check_res = self.check_proposal_hash(&sign_proposal.proposal.vote_proposal.phash);
@@ -1480,7 +1485,7 @@ impl Bft {
     pub fn process_network(&mut self, net_msg: NetworkMsg) {
         match net_msg.r#type.as_str().into() {
             VoteMsgType::Proposal => {
-                let res = self.handle_proposal(&net_msg, true);
+                let res = self.handle_proposal(&net_msg);
                 warn!("------ net msg Proposal res {:?}", res);
                 if let Ok((height, round)) = res {
                     self.follower_proc_proposal(height, round);
