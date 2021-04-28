@@ -37,7 +37,7 @@ anyhow = "*"
 toml = "0.5"
 clap = "3.0.0-beta.2"
 git-version = "*"
-#lazy_static = "1.4"
+crc32fast = "1.2.1"
 
 [build-dependencies]
 util = { git = "https://github.com/citahub/cita-common.git", branch = "develop" }

@@ -43,12 +43,6 @@ pub struct Vote {
     pub signature: Vec<u8>,
 }
 
-// impl Vote {
-//     pub fn new() -> Self {
-//         Vote::default()
-//     }
-// }
-
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct SignedNetworkProposal {
     pub proposal: NetworkProposal,

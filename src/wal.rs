@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use log::info;
-use std::collections::{btree_map::Entry, BTreeMap};
+use crc32fast::Hasher as CrcHasher;
+use log::{info, warn};
 use std::fs::{read_dir, DirBuilder, File, OpenOptions};
 use std::io::{self, Read, Seek, Write};
-use std::mem::transmute;
 use std::str;
+use std::{
+    collections::{btree_map::Entry, BTreeMap},
+    convert::TryInto,
+};
 
 const DELETE_FILE_INTERVAL: u64 = 8;
 
@@ -180,11 +183,15 @@ impl Wal {
 
         let mut hlen = 0;
         if let Some(fs) = self.height_fs.get_mut(&height) {
-            let len_bytes: [u8; 4] = unsafe { transmute(mlen.to_le()) };
-            let type_bytes: [u8; 1] = unsafe { transmute(mtype.to_le()) };
+            let len_bytes: [u8; 4] = mlen.to_le_bytes();
+            let type_bytes: [u8; 1] = [mtype];
+            let mut crc = CrcHasher::new();
+            crc.update(msg);
+            let check_sum = crc.finalize();
             fs.seek(io::SeekFrom::End(0))?;
             fs.write_all(&len_bytes[..])?;
             fs.write_all(&type_bytes[..])?;
+            fs.write_all(&check_sum.to_le_bytes())?;
             hlen = fs.write(msg)?;
             fs.flush()?;
         } else {
@@ -218,29 +225,33 @@ impl Wal {
                 return vec_out;
             }
             let fsize = res_fsize.unwrap();
-            if fsize <= 5 {
-                return vec_out;
-            }
             let mut index = 0;
+            let crc = CrcHasher::new();
             loop {
-                if index + 5 > fsize {
+                if index + 9 > fsize {
                     break;
                 }
-                let hd: [u8; 4] = [
-                    vec_buf[index],
-                    vec_buf[index + 1],
-                    vec_buf[index + 2],
-                    vec_buf[index + 3],
-                ];
-                let tmp: u32 = unsafe { transmute::<[u8; 4], u32>(hd) };
+                let tmp = u32::from_le_bytes(vec_buf[index..index + 4].try_into().unwrap());
                 let bodylen = tmp as usize;
                 let mtype = vec_buf[index + 4];
-                index += 5;
+                let saved_crc =
+                    u32::from_le_bytes(vec_buf[index + 5..index + 9].try_into().unwrap());
+                index += 9;
                 if index + bodylen > fsize {
                     break;
                 }
-                vec_out.push((mtype, vec_buf[index..index + bodylen].to_vec()));
                 index += bodylen;
+                let mut crc = crc.clone();
+                crc.update(&vec_buf[index..index + bodylen]);
+                let check_sum = crc.finalize();
+                if check_sum != saved_crc {
+                    warn!(
+                        "wal crc check not ok saved {} check {}",
+                        saved_crc, check_sum
+                    );
+                    continue;
+                }
+                vec_out.push((mtype, vec_buf[index..index + bodylen].to_vec()));
             }
         }
         vec_out

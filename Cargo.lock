@@ -419,6 +419,7 @@ dependencies = [
  "cita-types",
  "cita_cloud_proto",
  "clap",
+ "crc32fast",
  "crossbeam",
  "dotenv",
  "engine",
