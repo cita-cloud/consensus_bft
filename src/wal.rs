@@ -240,21 +240,20 @@ impl Wal {
                 if index + bodylen > fsize {
                     break;
                 }
-                index += bodylen;
                 let mut crc = crc.clone();
-
-                warn!("---------- load type {}",mtype);
-                
+                warn!("---------- load type {}", mtype);
                 crc.update(&vec_buf[index..index + bodylen]);
+
                 let check_sum = crc.finalize();
                 if check_sum != saved_crc {
                     warn!(
                         "wal crc check not ok saved {} check {}",
                         saved_crc, check_sum
                     );
-                    continue;
+                    break;
                 }
                 vec_out.push((mtype, vec_buf[index..index + bodylen].to_vec()));
+                index += bodylen;
             }
         }
         vec_out
