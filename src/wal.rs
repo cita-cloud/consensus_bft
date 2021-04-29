@@ -241,13 +241,13 @@ impl Wal {
                     break;
                 }
                 let mut crc = crc.clone();
-                warn!("---------- load type {}", mtype);
+
                 crc.update(&vec_buf[index..index + bodylen]);
 
                 let check_sum = crc.finalize();
                 if check_sum != saved_crc {
                     warn!(
-                        "wal crc check not ok saved {} check {}",
+                        "wal crc checked error saved {} check {}",
                         saved_crc, check_sum
                     );
                     break;
@@ -257,5 +257,34 @@ impl Wal {
             }
         }
         vec_out
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crc32fast::Hasher as CrcHasher;
+    #[test]
+    fn test_crc() {
+        let msg1: Vec<u8> = vec![1, 2, 3, 4, 5];
+        let msg2: Vec<u8> = vec![5, 4, 3, 2, 1];
+
+        let mut crc = CrcHasher::new();
+        crc.update(&msg1);
+        let check_sum1 = crc.finalize();
+
+        let mut crc = CrcHasher::new();
+        crc.update(&msg2);
+        let check_sum2 = crc.finalize();
+
+        let mut crc = CrcHasher::new();
+        crc.update(&msg2);
+        let sencond_check2 = crc.finalize();
+
+        let mut crc = CrcHasher::new();
+        crc.update(&msg1);
+        let sencond_check1 = crc.finalize();
+
+        assert_eq!(check_sum1, sencond_check1);
+        assert_eq!(check_sum2, sencond_check2);
     }
 }
