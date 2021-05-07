@@ -51,3 +51,12 @@ sm2 = ["cita-crypto/sm2", "proof/sm2", "engine/sm2"]
 sha3hash = ["hashable/sha3hash",  "proof/sha3hash", "engine/sha3hash"]
 blake2bhash = ["hashable/blake2bhash", "proof/blake2bhash", "engine/blake2bhash"]
 sm3hash = ["hashable/sm3hash", "proof/sm3hash", "engine/sm3hash"]
+
+
+[profile.release.package."*"]
+# Set the default for dependencies.
+debug = 0
+
+[profile.release]
+# Add debug info -- line tables only
+debug = 1
