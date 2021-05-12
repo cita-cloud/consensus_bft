@@ -1876,11 +1876,7 @@ impl Bft {
                             CtlBackBftMsg::GetProposalRes(height,proposal) => {
                                 self.recv_new_height_signal(height,proposal);
                             },
-                            CtlBackBftMsg::CheckProposalRes(height,round,_res) => {
-
-                                // test code,tobe removed
-                                let res = true;
-
+                            CtlBackBftMsg::CheckProposalRes(height,round,res) => {
                                 let hash = self.proposals.get_proposal(height,round).map(|p| p.phash);
                                 if let Some(hash) = hash {
                                     if height == self.height && round == self.round && self.step < Step::Prevote {
