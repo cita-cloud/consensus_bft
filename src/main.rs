@@ -24,11 +24,10 @@ use git_version::git_version;
 use types::{clean_0x, Address};
 
 use cita_cloud_proto::common::{
-    Empty, Proposal as ProtoProposal, ProposalWithProof, SimpleResponse,
+    ConsensusConfiguration, Empty, Proposal as ProtoProposal, ProposalWithProof, SimpleResponse,
 };
-use cita_cloud_proto::consensus::consensus_service_server::ConsensusServiceServer;
-use cita_cloud_proto::consensus::{
-    consensus_service_server::ConsensusService, ConsensusConfiguration,
+use cita_cloud_proto::consensus::consensus_service_server::{
+    ConsensusService, ConsensusServiceServer,
 };
 use cita_cloud_proto::controller::consensus2_controller_service_client::Consensus2ControllerServiceClient;
 use cita_cloud_proto::network::network_msg_handler_service_server::NetworkMsgHandlerService;
@@ -147,10 +146,11 @@ impl BftToCtl {
                 }
                 BftToCtlMsg::CommitBlock(height, pproff) => {
                     let request = tonic::Request::new(pproff);
-                    let response = client.commit_block(request).await.map(|_resp| ());
+                    let response = client.commit_block(request).await;
                     //.map_err(|e| e.into());
-                    if response.is_ok() {
-                        let msg = CtlBackBftMsg::CommitBlockRes(height);
+                    if let Ok(res) = response {
+                        let config = res.into_inner();
+                        let msg = CtlBackBftMsg::CommitBlockRes(config.height);
                         b2c.back_bft_tx.send(msg).unwrap();
                     }
                 }

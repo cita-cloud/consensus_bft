@@ -27,7 +27,7 @@ lru-cache = "0.1"
 authority_manage = { git = "https://github.com/citahub/cita-common.git", branch = "develop" }
 rustc-hex = "1.0"
 min-max-heap = "1.2.2"
-cita_cloud_proto = { git = "https://github.com/cita-cloud/cita_cloud_proto.git",branch = "master" }
+cita_cloud_proto = { git = "https://github.com/cita-cloud/cita_cloud_proto.git", branch = "full_block_develop" }
 tonic = "*"
 prost = "*"
 tokio = { version = "*", features = ["full"] }
