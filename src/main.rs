@@ -144,7 +144,7 @@ impl BftToCtl {
                         b2c.back_bft_tx.send(msg).unwrap();
                     }
                 }
-                BftToCtlMsg::CommitBlock(height, pproff) => {
+                BftToCtlMsg::CommitBlock(_height, pproff) => {
                     let request = tonic::Request::new(pproff);
                     let response = client.commit_block(request).await;
                     //.map_err(|e| e.into());

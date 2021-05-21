@@ -1,7 +1,7 @@
 use crate::crypto::Signature;
 use crate::types::H256;
 use crate::voteset::Proposal;
-use cita_cloud_proto::common::{ProposalWithProof, ConsensusConfiguration};
+use cita_cloud_proto::common::{ConsensusConfiguration, ProposalWithProof};
 use hashable::Hashable;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
