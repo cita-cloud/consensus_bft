@@ -139,19 +139,27 @@ impl BftToCtl {
                         .await
                         .map(|resp| resp.into_inner().is_success);
                     //.map_err(|e| e.into());
-                    if let Ok(res) = response {
-                        let msg = CtlBackBftMsg::CheckProposalRes(height, r, res);
-                        b2c.back_bft_tx.send(msg).unwrap();
+                    match response {
+                        Ok(res) => {
+                            let msg = CtlBackBftMsg::CheckProposalRes(height, r, res);
+                            b2c.back_bft_tx.send(msg).unwrap();
+                        },
+                        Err(status) => {
+                            warn!("CheckProposalReq failed: {:?}", status)
+                        }
                     }
                 }
                 BftToCtlMsg::CommitBlock(_height, pproff) => {
                     let request = tonic::Request::new(pproff);
                     let response = client.commit_block(request).await;
                     //.map_err(|e| e.into());
-                    if let Ok(res) = response {
-                        let config = res.into_inner();
-                        let msg = CtlBackBftMsg::CommitBlockRes(config.height);
-                        b2c.back_bft_tx.send(msg).unwrap();
+                    match response {
+                        Ok(res) => {
+                            let config = res.into_inner();
+                            let msg = CtlBackBftMsg::CommitBlockRes(config.height);
+                            b2c.back_bft_tx.send(msg).unwrap();
+                        },
+                        Err(e) => warn!("{:?}", e)
                     }
                 }
             }
