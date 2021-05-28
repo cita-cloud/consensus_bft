@@ -1888,8 +1888,8 @@ impl Bft {
                                             res,
                                         );
                                         if !res {
-                                            //self.proposal = None;
-                                            //self.hash_proposals.remove(&hash);
+                                            self.proposal = None;
+                                            self.hash_proposals.remove(&hash);
                                         } else {
                                             let msg: Vec<u8> =
                                                 self.hash_proposals.get_mut(&hash).map(|raw| {

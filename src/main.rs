@@ -143,7 +143,7 @@ impl BftToCtl {
                         Ok(res) => {
                             let msg = CtlBackBftMsg::CheckProposalRes(height, r, res);
                             b2c.back_bft_tx.send(msg).unwrap();
-                        },
+                        }
                         Err(status) => {
                             warn!("CheckProposalReq failed: {:?}", status)
                         }
@@ -158,8 +158,8 @@ impl BftToCtl {
                             let config = res.into_inner();
                             let msg = CtlBackBftMsg::CommitBlockRes(config.height);
                             b2c.back_bft_tx.send(msg).unwrap();
-                        },
-                        Err(e) => warn!("{:?}", e)
+                        }
+                        Err(e) => warn!("{:?}", e),
                     }
                 }
             }
