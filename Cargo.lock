@@ -356,8 +356,8 @@ dependencies = [
 
 [[package]]
 name = "cita_cloud_proto"
-version = "5.0.0"
-source = "git+https://github.com/cita-cloud/cita_cloud_proto.git?branch=master#fbac6c605f2f38499e04202a73645a1a12441fac"
+version = "0.1.0"
+source = "git+https://github.com/cita-cloud/cita_cloud_proto.git?branch=full_block_develop#d807cb84d96a85d94865528b25849d3b42a88535"
 dependencies = [
  "prost",
  "tokio",

@@ -208,6 +208,11 @@ impl Bft {
             warn!("There are no authorities");
             return Err(EngineError::NotAuthorized(Address::zero()));
         }
+
+        info!(
+            " ----- validators h {},r {} {:02x?}",
+            height, round, p.validators
+        );
         let proposer_nonce = height + round;
         let proposer: &Address = p
             .validators
@@ -216,10 +221,11 @@ impl Bft {
                 "There are validator_n() authorities; \
                  taking number modulo validator_n() gives number in validator_n() range; qed",
             );
+
         if proposer == address {
             Ok(true)
         } else {
-            //info!(" This round  proposer {:?} comming {:?}", proposer, address);
+            info!(" This round  proposer {:?} comming {:?}", proposer, address);
             Ok(false)
         }
     }
@@ -398,7 +404,7 @@ impl Bft {
                 // All nodes votes,and not get enough vote, enter next round,not wait for proposal_wait reach
                 else if next_flag || self.is_all_vote(vote_set.count) {
                     trace!(
-                        "leader proc prevote errflag {} vote num{}",
+                        "leader proc prevote errflag {} vote count {}",
                         next_flag,
                         vote_set.count
                     );
@@ -810,7 +816,7 @@ impl Bft {
                 }
             }
             _ => {
-                self.send_raw_net_msg(net_msg_type.into(), 0, LeaderVote::default());
+                self.send_raw_net_msg(net_msg_type.into(), 0, LeaderVote::new(height, round, step));
             }
         }
     }
@@ -987,7 +993,7 @@ impl Bft {
         let h = fvote.vote.height;
         let r = fvote.vote.round;
 
-        trace!("handle_newview h {} r {}", h, r);
+        info!("handle_newview h {} r {}", h, r);
         if h < self.height {
             return Err(EngineError::VoteMsgDelay(h as usize));
         }
@@ -995,7 +1001,7 @@ impl Bft {
             self.send_proposal_request();
         }
         let sender = Self::design_message(fvote.sig.clone(), fvote.vote.clone());
-        trace!("handle_newview sender {:?}", sender);
+        info!("handle_newview sender {:?}", sender);
         if !self.is_validator(&sender) {
             return Err(EngineError::NotAuthorized(sender));
         }
@@ -1018,7 +1024,7 @@ impl Bft {
             if trans_flag {
                 self.send_filter.insert(r, now);
                 self.pub_newview_message(h, r);
-                trace!("Pub newview for old round h {} r {}", h, r);
+                info!("Pub newview for old round h {} r {}", h, r);
             }
             return Err(EngineError::VoteMsgDelay(r as usize));
         }
@@ -1028,7 +1034,7 @@ impl Bft {
         if (h > self.height && h < self.height + self.auth_manage.validator_n() as u64 + 1)
             || (h == self.height && r >= self.round)
         {
-            debug!(
+            info!(
                 "Handle message hanle newview: \
                     height {}, \
                     round {}, \
@@ -1044,7 +1050,7 @@ impl Bft {
             }
             return Err(EngineError::DoubleVote(sender));
         }
-        Err(EngineError::UnexpectedMessage)
+        Err(EngineError::InvalidTimeInterval)
     }
 
     fn leader_handle_message(
@@ -1053,6 +1059,7 @@ impl Bft {
     ) -> Result<(u64, u64, Option<H256>), EngineError> {
         let fvote: SignedFollowerVote =
             deserialize(&net_msg.msg).map_err(|_| EngineError::UnexpectedMessage)?;
+        info!("leader_handle_message {:?}", fvote);
 
         let h = fvote.vote.height;
         let r = fvote.vote.round;
@@ -1075,7 +1082,7 @@ impl Bft {
             if (h > self.height && h < self.height + self.auth_manage.validator_n() as u64 + 1)
                 || (h == self.height && r >= self.round)
             {
-                debug!(
+                info!(
                     "Handle message leader get vote: \
                      height {}, \
                      round {}, \
@@ -1086,7 +1093,7 @@ impl Bft {
                 );
                 let ret = self.votes.add(sender, &fvote);
                 if ret {
-                    if h > self.height {
+                    if h > self.height || r > self.round {
                         return Err(EngineError::VoteMsgForth(h as usize));
                     }
                     return Ok((h, r, fvote.vote.hash));
@@ -1094,13 +1101,16 @@ impl Bft {
                 return Err(EngineError::DoubleVote(sender));
             }
         }
-        Err(EngineError::UnexpectedMessage)
+        Err(EngineError::NotProposer(Mismatch {
+            expected: self.params.signer.address,
+            found: sender,
+        }))
     }
 
     fn follower_proc_proposal(&mut self, height: u64, round: u64) -> Option<bool> {
         let proposal = self.proposals.get_proposal(height, round);
         if let Some(proposal) = proposal {
-            trace!("proc proposal {} begin h: {}, r: {}", self, height, round);
+            info!("proc proposal {} begin h: {}, r: {}", self, height, round);
 
             if proposal.is_default() {
                 info!("proc proposal is default empty");
@@ -1147,8 +1157,8 @@ impl Bft {
             self.proposal = Some(proposal.phash);
             return Some(true);
         }
-        debug!("Proc proposal not find proposal h {} r {}", height, round);
-        Some(false)
+        info!("Proc proposal not find proposal h {} r {}", height, round);
+        None
     }
 
     fn send_proposal_verify_req(&self, height: u64, round: u64, raw_proposal: Vec<u8>) {
@@ -1183,12 +1193,14 @@ impl Bft {
     }
 
     fn handle_proposal(&mut self, net_msg: &NetworkMsg) -> Result<(u64, u64), EngineError> {
-        trace!("Handle proposal begin {} ", self);
+        info!("Handle proposal begin {} ", self);
         let sign_proposal: SignedNetworkProposal =
             deserialize(&net_msg.msg).map_err(|_| EngineError::UnexpectedMessage)?;
-
         let height = sign_proposal.proposal.height;
         let round = sign_proposal.proposal.round;
+
+        info!("handle_proposal h {} r {}", height, round);
+
         let signature = sign_proposal.sig;
         if signature.len() != SIGNATURE_BYTES_LEN {
             return Err(EngineError::InvalidSignature);
@@ -1198,20 +1210,19 @@ impl Bft {
             || (height == self.height && round < self.round)
             || (height == self.height && round == self.round && self.step > Step::ProposeWait)
         {
-            debug!("Handle proposal {} get old proposal", self);
+            info!("Handle proposal {} get old proposal", self);
             return Err(EngineError::VoteMsgDelay(height as usize));
         } else if height == self.height && self.step == Step::CommitWait {
-            debug!(
+            info!(
                 "Not handle proposal {} because conensus is ok in height",
                 self
             );
             return Err(EngineError::VoteMsgForth(round as usize));
         }
 
-        trace!(
+        info!(
             "handle proposal {} hash {:?}",
-            self,
-            sign_proposal.proposal.vote_proposal.phash
+            self, sign_proposal.proposal.vote_proposal.phash
         );
 
         if height < self.height
@@ -1283,7 +1294,7 @@ impl Bft {
             }
             return Err(EngineError::VoteMsgForth(height as usize));
         }
-        Err(EngineError::UnexpectedMessage)
+        Err(EngineError::InvalidTimeInterval)
     }
 
     /// Clean origin of height,round
@@ -1600,6 +1611,8 @@ impl Bft {
             "new_round_start_with_added_time added time {:?} self {}",
             remaining_time, self
         );
+
+        info!("------- self address {:?}", self.params.signer.address);
         if round == INIT_ROUND {
             self.wal_new_height(height);
             self.start_time = unix_now() + remaining_time;

@@ -195,6 +195,17 @@ pub struct LeaderVote {
     pub votes: Vec<SignedFollowerVote>,
 }
 
+impl LeaderVote {
+    pub fn new(height: u64, round: u64, step: Step) -> Self {
+        Self {
+            height,
+            round,
+            step,
+            ..Default::default()
+        }
+    }
+}
+
 impl_from!(Vote);
 impl_from!(SignedNetworkProposal);
 impl_from!(NetworkProposal);
