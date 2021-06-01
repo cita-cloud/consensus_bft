@@ -1097,19 +1097,19 @@ impl Bft {
         Err(EngineError::UnexpectedMessage)
     }
 
-    fn follower_proc_proposal(&mut self, height: u64, round: u64) -> bool {
+    fn follower_proc_proposal(&mut self, height: u64, round: u64) -> Option<bool> {
         let proposal = self.proposals.get_proposal(height, round);
         if let Some(proposal) = proposal {
             trace!("proc proposal {} begin h: {}, r: {}", self, height, round);
 
             if proposal.is_default() {
                 info!("proc proposal is default empty");
-                return false;
+                return Some(false);
             }
 
             if !proposal.check(height, &self.auth_manage.validators) {
                 warn!("Proc proposal check authorities error");
-                return false;
+                return Some(false);
             }
 
             let proposal_lock_round = proposal.lock_round;
@@ -1126,11 +1126,29 @@ impl Bft {
                 );
                 self.clean_proposal_locked_info();
             }
+
+            let res = self.hash_proposals.get_mut(&proposal.phash);
+            match res {
+                None => {
+                    return None;
+                }
+                Some((_, res)) => match res {
+                    VerifiedProposalStatus::Err => {
+                        debug!("Proc proposal verified proposal error {:?}", proposal.phash);
+                        return Some(false);
+                    }
+                    VerifiedProposalStatus::Init => {
+                        debug!("Proc proposal verified proposal init {:?}", proposal.phash);
+                        return None;
+                    }
+                    _ => {}
+                },
+            }
             self.proposal = Some(proposal.phash);
-            return true;
+            return Some(true);
         }
         debug!("Proc proposal not find proposal h {} r {}", height, round);
-        false
+        Some(false)
     }
 
     fn send_proposal_verify_req(&self, height: u64, round: u64, raw_proposal: Vec<u8>) {
@@ -1488,8 +1506,9 @@ impl Bft {
                 let res = self.handle_proposal(&net_msg);
                 warn!("------ net msg Proposal res {:?}", res);
                 if let Ok((height, round)) = res {
-                    self.follower_proc_proposal(height, round);
-                    self.bundle_op_after_proposal(height, round);
+                    if self.follower_proc_proposal(height, round).is_some() {
+                        self.bundle_op_after_proposal(height, round);
+                    }
                 }
             }
             VoteMsgType::Prevote => {
@@ -1609,11 +1628,14 @@ impl Bft {
                 }
             }
             tv += remaining_time;
-        } else if self.follower_proc_proposal(height, round) {
-            self.follower_prevote_send(height, round);
-            step = Step::PrevoteWait;
-            tv = self.proposal_interval_round_multiple(round);
+        } else {
+            if self.follower_proc_proposal(height, round).is_some() {
+                self.follower_prevote_send(height, round);
+                step = Step::PrevoteWait;
+                tv = self.proposal_interval_round_multiple(round);
+            }
         }
+
         self.change_state_step(height, round, step);
         self.set_state_timeout(height, round, step, tv);
     }
@@ -1889,7 +1911,9 @@ impl Bft {
                                         );
                                         if !res {
                                             self.proposal = None;
-                                            self.hash_proposals.remove(&hash);
+                                            self.hash_proposals.get_mut(&hash).map(|raw| {
+                                                raw.1=VerifiedProposalStatus::Err;
+                                            });
                                         } else {
                                             let msg: Vec<u8> =
                                                 self.hash_proposals.get_mut(&hash).map(|raw| {
