@@ -1826,11 +1826,16 @@ impl Bft {
     fn proc_commit_res(&mut self, h: u64) {
         let now = unix_now();
         info!(
-            "--- now {:?} start time {:?} interval {}",
+            "--- now {:?} start time {:?} interval {} commint height {}",
             now,
             self.start_time,
-            self.params.timer.get_total_duration()
+            self.params.timer.get_total_duration(),
+            h
         );
+
+        if h < self.height {
+            return;
+        }
 
         let config_interval = Duration::from_millis(self.params.timer.get_total_duration());
         let remaining_time = (self.start_time + config_interval)
