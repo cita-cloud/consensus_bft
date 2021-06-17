@@ -1190,13 +1190,16 @@ impl Bft {
     }
 
     fn handle_proposal(&mut self, net_msg: &NetworkMsg) -> Result<(u64, u64), EngineError> {
-        info!("Handle proposal begin {} ", self);
         let sign_proposal: SignedNetworkProposal =
             deserialize(&net_msg.msg).map_err(|_| EngineError::UnexpectedMessage)?;
         let height = sign_proposal.proposal.height;
         let round = sign_proposal.proposal.round;
 
         info!("handle_proposal h {} r {}", height, round);
+        if self.proposals.get_proposal(height, round).is_some() {
+            trace!("handle_proposal proposal recieved");
+            return Err(EngineError::DoubleVote(Address::zero()));
+        }
 
         let signature = sign_proposal.sig;
         if signature.len() != SIGNATURE_BYTES_LEN {
@@ -1640,12 +1643,10 @@ impl Bft {
                 }
             }
             tv += remaining_time;
-        } else {
-            if self.follower_proc_proposal(height, round).is_some() {
-                self.follower_prevote_send(height, round);
-                step = Step::PrevoteWait;
-                tv = self.proposal_interval_round_multiple(round);
-            }
+        } else if self.follower_proc_proposal(height, round).is_some() {
+            self.follower_prevote_send(height, round);
+            step = Step::PrevoteWait;
+            tv = self.proposal_interval_round_multiple(round);
         }
 
         self.change_state_step(height, round, step);
@@ -1929,9 +1930,7 @@ impl Bft {
 
                                         if !res {
                                             self.proposal = None;
-                                            self.hash_proposals.get_mut(&hash).map(|raw| {
-                                                raw.1=VerifiedProposalStatus::Err;
-                                            });
+                                            if let Some(raw) = self.hash_proposals.get_mut(&hash) { raw.1=VerifiedProposalStatus::Err; }
                                         } else {
                                             let msg: Vec<u8> =
                                                 self.hash_proposals.get_mut(&hash).map(|raw| {
