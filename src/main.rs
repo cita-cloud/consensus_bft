@@ -10,6 +10,7 @@ use cita_crypto as crypto;
 use cita_types as types;
 
 use message::{BftSvrMsg, BftToCtlMsg, CtlBackBftMsg};
+use tokio::task;
 use util::set_panic_handler;
 
 use log::{debug, error, info, warn};
@@ -117,15 +118,15 @@ impl BftToCtl {
     async fn run(mut b2c: BftToCtl) {
         let mut client = Self::reconnect(b2c.ctr_port).await;
         while let Some(to_msg) = b2c.to_ctl_rx.recv().await {
-            warn!("consensus to ctrl get {:?}", to_msg);
             match to_msg {
                 BftToCtlMsg::GetProposalReq => {
+                    info!("consensus to ctrl : GetProposalReq ");
                     let request = tonic::Request::new(Empty {});
                     let response = client
                         .get_proposal(request)
                         .await
                         .map(|resp| resp.into_inner());
-                    //.map_err(|e| e.into());
+
                     if let Ok(res) = response {
                         let msg = CtlBackBftMsg::GetProposalRes(res.height, res.data);
                         b2c.back_bft_tx.send(msg).unwrap();
@@ -133,34 +134,41 @@ impl BftToCtl {
                 }
 
                 BftToCtlMsg::CheckProposalReq(height, r, raw) => {
+                    info!("consensus to ctrl, CheckProposalReq h {} r {}", height, r);
                     let request = tonic::Request::new(ProtoProposal { height, data: raw });
                     let response = client
                         .check_proposal(request)
                         .await
                         .map(|resp| resp.into_inner().is_success);
-                    //.map_err(|e| e.into());
-                    match response {
-                        Ok(res) => {
-                            let msg = CtlBackBftMsg::CheckProposalRes(height, r, res);
-                            b2c.back_bft_tx.send(msg).unwrap();
-                        }
+
+                    let res = match response {
+                        Ok(res) => res,
                         Err(status) => {
-                            warn!("CheckProposalReq failed: {:?}", status)
+                            warn!("CheckProposalReq failed: {:?}", status);
+                            false
                         }
-                    }
+                    };
+                    let msg = CtlBackBftMsg::CheckProposalRes(height, r, res);
+                    b2c.back_bft_tx.send(msg).unwrap();
                 }
-                BftToCtlMsg::CommitBlock(_height, pproff) => {
-                    let request = tonic::Request::new(pproff);
-                    let response = client.commit_block(request).await;
-                    //.map_err(|e| e.into());
-                    match response {
-                        Ok(res) => {
-                            let config = res.into_inner();
-                            let msg = CtlBackBftMsg::CommitBlockRes(config.height);
-                            b2c.back_bft_tx.send(msg).unwrap();
+
+                BftToCtlMsg::CommitBlock(pproff) => {
+                    let mut client = client.clone();
+                    let back_bft_tx = b2c.back_bft_tx.clone();
+                    info!("consensus to ctrl : CommitBlock");
+                    task::spawn(async move {
+                        let request = tonic::Request::new(pproff);
+                        let response = client.commit_block(request).await;
+
+                        match response {
+                            Ok(res) => {
+                                let config = res.into_inner();
+                                let msg = CtlBackBftMsg::CommitBlockRes(config);
+                                back_bft_tx.send(msg).unwrap();
+                            }
+                            Err(e) => warn!("{:?}", e),
                         }
-                        Err(e) => warn!("{:?}", e),
-                    }
+                    });
                 }
             }
         }
@@ -258,7 +266,7 @@ impl NetworkMsgHandlerService for NetToBft {
         if msg.module != "consensus" {
             Err(tonic::Status::invalid_argument("wrong module"))
         } else {
-            info!("get netmsg {:?}", msg);
+            info!("get netmsg module {:?} type {:?}", msg.module, msg.r#type);
             self.to_bft_tx.send(msg).unwrap();
             let reply = SimpleResponse { is_success: true };
             Ok(tonic::Response::new(reply))

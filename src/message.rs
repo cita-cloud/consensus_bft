@@ -25,14 +25,14 @@ pub enum BftSvrMsg {
 pub enum BftToCtlMsg {
     GetProposalReq,
     CheckProposalReq(u64, u64, Vec<u8>),
-    CommitBlock(u64, ProposalWithProof),
+    CommitBlock(ProposalWithProof),
 }
 
 #[derive(Debug)]
 pub enum CtlBackBftMsg {
     GetProposalRes(u64, Vec<u8>),
     CheckProposalRes(u64, u64, bool),
-    CommitBlockRes(u64),
+    CommitBlockRes(ConsensusConfiguration),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Default)]

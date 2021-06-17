@@ -31,3 +31,6 @@ root:
   level: info
   appenders:
     - journey-service
+  loggers:
+    cita_bft:
+      level: trace

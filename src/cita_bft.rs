@@ -24,7 +24,9 @@ use crate::votetime::TimeoutInfo;
 use crate::wal::{LogType, Wal};
 use authority_manage::AuthorityManage;
 use bincode::deserialize;
-use cita_cloud_proto::common::{Proposal as ProtoProposal, ProposalWithProof};
+use cita_cloud_proto::common::{
+    ConsensusConfiguration, Proposal as ProtoProposal, ProposalWithProof,
+};
 use cita_cloud_proto::network::NetworkMsg;
 use cita_directories::DataPath;
 use engine::{unix_now, EngineError, Mismatch};
@@ -208,11 +210,6 @@ impl Bft {
             warn!("There are no authorities");
             return Err(EngineError::NotAuthorized(Address::zero()));
         }
-
-        info!(
-            " ----- validators h {},r {} {:02x?}",
-            height, round, p.validators
-        );
         let proposer_nonce = height + round;
         let proposer: &Address = p
             .validators
@@ -705,7 +702,7 @@ impl Bft {
                     };
                     self.bft_channels
                         .to_ctl_tx
-                        .send(BftToCtlMsg::CommitBlock(height, pproof))
+                        .send(BftToCtlMsg::CommitBlock(pproof))
                         .unwrap();
                     return true;
                 }
@@ -860,9 +857,9 @@ impl Bft {
         }
         info!("----- check_proposal_proof ok");
 
-        if h > self.height {
-            self.send_proposal_request();
-        }
+        // if h > self.height {
+        //     self.send_proposal_request();
+        // }
         true
     }
 
@@ -997,9 +994,9 @@ impl Bft {
         if h < self.height {
             return Err(EngineError::VoteMsgDelay(h as usize));
         }
-        if h > self.height {
-            self.send_proposal_request();
-        }
+        // if h > self.height {
+        //     self.send_proposal_request();
+        // }
         let sender = Self::design_message(fvote.sig.clone(), fvote.vote.clone());
         info!("handle_newview sender {:?}", sender);
         if !self.is_validator(&sender) {
@@ -1269,17 +1266,19 @@ impl Bft {
                 self, height, round, check_res
             );
 
-            let status;
-            if check_res == Some(true) {
-                status = VerifiedProposalStatus::Ok;
-            } else {
-                status = VerifiedProposalStatus::Init;
-                self.send_proposal_verify_req(
-                    height,
-                    round,
-                    sign_proposal.proposal.raw_proposal.clone(),
-                );
-            }
+            let status = match check_res {
+                Some(true) => VerifiedProposalStatus::Ok,
+                Some(false) => VerifiedProposalStatus::Err,
+                _ => {
+                    self.send_proposal_verify_req(
+                        height,
+                        round,
+                        sign_proposal.proposal.raw_proposal.clone(),
+                    );
+                    VerifiedProposalStatus::Init
+                }
+            };
+
             self.hash_proposals.insert(
                 sign_proposal.proposal.vote_proposal.phash,
                 (sign_proposal.proposal.raw_proposal, status),
@@ -1792,7 +1791,7 @@ impl Bft {
         trace!("load_wal_log ends");
     }
 
-    fn recv_new_height_signal(&mut self, h: u64, proposal: Vec<u8>) {
+    fn recv_new_height_proposal(&mut self, h: u64, proposal: Vec<u8>) {
         if h < self.height {
             return;
         }
@@ -1801,8 +1800,8 @@ impl Bft {
             .insert(hash, (proposal, VerifiedProposalStatus::Ok));
         self.self_proposal.insert(h, hash);
 
-        warn!(
-            "--- recv_new_height_signal h: {:?} hash {:?} self {:?}",
+        info!(
+            "--- recv_new_height_proposal h: {:?} hash {:?} self {:?}",
             h, hash, self
         );
 
@@ -1814,16 +1813,10 @@ impl Bft {
             && self.proposal.is_none()
         {
             self.leader_new_proposal(true);
-        } else if h > self.height + 1
-            || (h == self.height + 1
-                && (self.step != Step::CommitWait || self.step != Step::Commit))
-        {
-            self.set_hrs(h, INIT_ROUND, Step::Propose);
-            self.redo_work();
         }
     }
 
-    fn proc_commit_res(&mut self, h: u64) {
+    fn proc_commit_res(&mut self, config: ConsensusConfiguration) {
         let now = unix_now();
         info!(
             "--- now {:?} start time {:?} interval {} commint height {}",
@@ -1841,18 +1834,21 @@ impl Bft {
         let remaining_time = (self.start_time + config_interval)
             .checked_sub(now)
             .unwrap_or_else(|| Duration::new(0, 0));
+        let conf_height = config.height;
+        self.set_config(config);
+
         if !self
-            .is_round_leader(h + 1, INIT_ROUND, &self.params.signer.address)
+            .is_round_leader(conf_height + 1, INIT_ROUND, &self.params.signer.address)
             .unwrap_or(false)
             || self.is_only_one_node()
         {
-            self.change_state_step(self.height, self.round, Step::CommitWait);
-            self.set_state_timeout(self.height, self.round, Step::CommitWait, remaining_time);
+            self.change_state_step(conf_height, self.round, Step::CommitWait);
+            self.set_state_timeout(conf_height, self.round, Step::CommitWait, remaining_time);
             return;
         }
 
-        if self.deal_old_height_when_commited(self.height) {
-            self.new_round_start_with_added_time(h + 1, INIT_ROUND, remaining_time);
+        if self.deal_old_height_when_commited(conf_height) {
+            self.new_round_start_with_added_time(conf_height + 1, INIT_ROUND, remaining_time);
         }
     }
 
@@ -1865,6 +1861,25 @@ impl Bft {
             Step::PrevoteWait,
             self.proposal_interval_round_multiple(round),
         );
+    }
+
+    fn set_config(&mut self, config: ConsensusConfiguration) {
+        self.params
+            .timer
+            .set_total_duration((config.block_interval * 1000) as u64);
+        let mut validators = Vec::new();
+        for v in config.validators {
+            validators.push(Address::from(&v[..]));
+        }
+        self.auth_manage
+            .receive_authorities_list(config.height as usize, &validators, &validators);
+
+        if self.is_validator(&self.params.signer.address) {
+            self.is_consensus_node = true;
+            self.send_proposal_request();
+        } else {
+            self.is_consensus_node = false;
+        }
     }
 
     pub async fn start(&mut self) {
@@ -1882,23 +1897,7 @@ impl Bft {
                     if let Some(svrmsg) = svrmsg {
                         match svrmsg {
                             BftSvrMsg::Conf(config) => {
-                                self.params.timer.set_total_duration((config.block_interval *1000) as u64);
-                                let mut validators = Vec::new();
-                                for v in config.validators {
-                                    validators.push(Address::from(&v[..]));
-                                }
-                                self.auth_manage.receive_authorities_list(
-                                                config.height as usize,
-                                                &validators,
-                                                &validators,
-                                            );
-
-                                if self.is_validator(&self.params.signer.address) {
-                                    self.is_consensus_node = true;
-                                    self.send_proposal_request();
-                                } else {
-                                    self.is_consensus_node = false;
-                                }
+                                self.set_config(config);
                             },
                             BftSvrMsg::PProof(pproof,tx) => {
                                 let res = self.check_proposal_proof(pproof);
@@ -1910,23 +1909,24 @@ impl Bft {
                 },
 
                 cback = self.bft_channels.ctl_back_rx.recv() => {
-                    info!("recv to control back msg {:?}",cback);
                     if let Some(cback) = cback {
                         match cback {
                             CtlBackBftMsg::GetProposalRes(height,proposal) => {
-                                self.recv_new_height_signal(height,proposal);
+                                info!("recv to control back GetProposalRes height {:?}",height);
+                                self.recv_new_height_proposal(height,proposal);
                             },
                             CtlBackBftMsg::CheckProposalRes(height,round,res) => {
+                                trace!(
+                                    "Process {} recieve check proposal  res h: {}, r: {} res {}",
+                                    self,
+                                    height,
+                                    round,
+                                    res,
+                                );
                                 let hash = self.proposals.get_proposal(height,round).map(|p| p.phash);
                                 if let Some(hash) = hash {
                                     if height == self.height && round == self.round && self.step < Step::Prevote {
-                                        trace!(
-                                            "Process {} recieve check proposal  res h: {}, r: {} res {}",
-                                            self,
-                                            height,
-                                            round,
-                                            res,
-                                        );
+
                                         if !res {
                                             self.proposal = None;
                                             self.hash_proposals.get_mut(&hash).map(|raw| {
@@ -1950,19 +1950,20 @@ impl Bft {
                                     }
                                 }
                             }
-                            CtlBackBftMsg::CommitBlockRes(h) => {
+                            CtlBackBftMsg::CommitBlockRes(config) => {
                                 // send proposal request too close to leader's send
                                 //self.send_proposal_request();
-                                self.proc_commit_res(h);
+                                info!("recv to control back CommitBlockRes {:?}",config);
+                                self.proc_commit_res(config);
                             }
                         }
                     }
                 },
                 net_msg = self.bft_channels.net_back_rx.recv() => {
-                    info!("recv network back to bft msg {:?}",net_msg);
                     if !self.is_consensus_node {
                         continue;
                     } else if let Some(net_msg) = net_msg {
+                        info!("recv network back to bft msg module {:?} type {:?}",net_msg.module,net_msg.r#type);
                         self.process_network(net_msg);
                     }
                 },
