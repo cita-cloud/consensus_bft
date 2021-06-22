@@ -704,7 +704,7 @@ impl Bft {
                         .to_ctl_tx
                         .send(BftToCtlMsg::CommitBlock(pproof))
                         .unwrap();
-                    
+
                     //self.send_proposal_request();
                     return true;
                 }
@@ -1879,7 +1879,10 @@ impl Bft {
 
         if self.is_validator(&self.params.signer.address) {
             self.is_consensus_node = true;
-            if self.is_round_leader(config.height + 1, INIT_ROUND, &self.params.signer.address).unwrap_or(false) {
+            if self
+                .is_round_leader(config.height + 1, INIT_ROUND, &self.params.signer.address)
+                .unwrap_or(false)
+            {
                 self.send_proposal_request();
             }
         } else {
