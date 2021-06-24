@@ -1905,7 +1905,9 @@ impl Bft {
                     if let Some(svrmsg) = svrmsg {
                         match svrmsg {
                             BftSvrMsg::Conf(config) => {
+                                self.set_hrs(config.height+1,INIT_ROUND,Step::Propose);
                                 self.set_config(config);
+
                             },
                             BftSvrMsg::PProof(pproof,tx) => {
                                 let res = self.check_proposal_proof(pproof);
