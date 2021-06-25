@@ -1903,7 +1903,7 @@ impl Bft {
                                 let h = config.height;
                                 self.set_config(config);
                                 self.set_hrs(h+1,INIT_ROUND,Step::ProposeWait);
-                                self.set_state_timeout(h+1,INIT_ROUND,Step::ProposeWait, self.proposal_interval_round_multiple(INIT_ROUND));
+                                self.set_state_timeout(h+1,INIT_ROUND,Step::ProposeWait, Duration::new(0,0));
                             },
                             BftSvrMsg::PProof(pproof,tx) => {
                                 let res = self.check_proposal_proof(pproof);
