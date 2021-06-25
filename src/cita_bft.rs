@@ -1900,9 +1900,10 @@ impl Bft {
                     if let Some(svrmsg) = svrmsg {
                         match svrmsg {
                             BftSvrMsg::Conf(config) => {
-                                self.set_hrs(config.height+1,INIT_ROUND,Step::Propose);
+                                let h = config.height;
                                 self.set_config(config);
-
+                                self.set_hrs(h+1,INIT_ROUND,Step::ProposeWait);
+                                self.set_state_timeout(h+1,INIT_ROUND,Step::ProposeWait, self.proposal_interval_round_multiple(INIT_ROUND));
                             },
                             BftSvrMsg::PProof(pproof,tx) => {
                                 let res = self.check_proposal_proof(pproof);
