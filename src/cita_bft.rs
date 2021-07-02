@@ -1821,15 +1821,16 @@ impl Bft {
 
     fn proc_commit_res(&mut self, config: ConsensusConfiguration) {
         let now = unix_now();
+        let conf_height = config.height;
         info!(
-            "--- now {:?} start time {:?} interval {} commint height {}",
+            "--- now {:?} start time {:?} interval {} commit height {}",
             now,
             self.start_time,
             self.params.timer.get_total_duration(),
-            h
+            conf_height
         );
 
-        if h < self.height {
+        if conf_height < self.height {
             return;
         }
 
@@ -1837,7 +1838,7 @@ impl Bft {
         let remaining_time = (self.start_time + config_interval)
             .checked_sub(now)
             .unwrap_or_else(|| Duration::new(0, 0));
-        let conf_height = config.height;
+
         self.set_config(config);
 
         if !self
