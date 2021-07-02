@@ -33,4 +33,4 @@ root:
     - journey-service
   loggers:
     cita_bft:
-      level: trace
+      level: info 
