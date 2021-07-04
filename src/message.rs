@@ -1,8 +1,7 @@
 use crate::crypto::Signature;
 use crate::types::H256;
 use crate::voteset::Proposal;
-use cita_cloud_proto::common::ProposalWithProof;
-use cita_cloud_proto::consensus::ConsensusConfiguration;
+use cita_cloud_proto::common::{ConsensusConfiguration, ProposalWithProof};
 use hashable::Hashable;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -26,14 +25,14 @@ pub enum BftSvrMsg {
 pub enum BftToCtlMsg {
     GetProposalReq,
     CheckProposalReq(u64, u64, Vec<u8>),
-    CommitBlock(u64, ProposalWithProof),
+    CommitBlock(ProposalWithProof),
 }
 
 #[derive(Debug)]
 pub enum CtlBackBftMsg {
     GetProposalRes(u64, Vec<u8>),
     CheckProposalRes(u64, u64, bool),
-    CommitBlockRes(u64),
+    CommitBlockRes(ConsensusConfiguration),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Default)]

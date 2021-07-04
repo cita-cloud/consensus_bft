@@ -66,8 +66,8 @@ pub struct WaitTimer {
 impl WaitTimer {
     pub fn new(timer_seter: Receiver<TimeoutInfo>, timer_notify: Sender<TimeoutInfo>) -> WaitTimer {
         WaitTimer {
-            timer_notify,
             timer_seter,
+            timer_notify,
         }
     }
 
