@@ -1,6 +1,6 @@
 [package]
 name = "consensus"
-version = "1.0.0"
+version = "6.0.0"
 authors = ["Rivtower Technologies <contact@rivtower.com>"]
 license = "Apache-2.0"
 edition = "2018"
@@ -27,7 +27,7 @@ lru-cache = "0.1"
 authority_manage = { git = "https://github.com/citahub/cita-common.git", branch = "develop" }
 rustc-hex = "1.0"
 min-max-heap = "1.2.2"
-cita_cloud_proto = { git = "https://github.com/cita-cloud/cita_cloud_proto" }
+cita_cloud_proto = { git = "https://github.com/cita-cloud/cita_cloud_proto", brach = "v6.0.0" }
 tonic = "*"
 prost = "*"
 tokio = { version = "*", features = ["full"] }
