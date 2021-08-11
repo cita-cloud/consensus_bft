@@ -29,7 +29,7 @@ pub struct PrivateKey {
 
 impl PrivateKey {
     pub fn new(sk: &str) -> Self {
-        let signer = PrivKey::from_str(clean_0x(&sk)).expect("Private key is wrong.");
+        let signer = PrivKey::from_str(clean_0x(sk)).expect("Private key is wrong.");
         PrivateKey { signer }
     }
 }

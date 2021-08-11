@@ -28,7 +28,6 @@ use cita_cloud_proto::common::{
     ConsensusConfiguration, Proposal as ProtoProposal, ProposalWithProof,
 };
 use cita_cloud_proto::network::NetworkMsg;
-use cita_directories::DataPath;
 use engine::{unix_now, EngineError, Mismatch};
 use hashable::Hashable;
 use log::{debug, error, info, trace, warn};
@@ -154,7 +153,7 @@ impl Bft {
         params: BftParams,
         bft_channels: BftChannls,
     ) -> Bft {
-        let logpath = DataPath::wal_path();
+        let logpath = ::std::env::var("WAL_PATH").unwrap_or_else(|_| "./data/wal".to_string());
         info!("start cita-bft log {}", logpath);
         let auth_manage = AuthorityManage::new();
         let is_consensus_node = auth_manage.validators.contains(&params.signer.address);
@@ -962,7 +961,7 @@ impl Bft {
                 h, r, s, sender, lvote.hash
             );
 
-            let ret = self.votes.add(sender, &sign_vote);
+            let ret = self.votes.add(sender, sign_vote);
             if !ret {
                 debug!("Vote messsage add failed");
                 return Err(EngineError::DoubleVote(sender));
@@ -1365,7 +1364,7 @@ impl Bft {
                 return false;
             }
             let hash = hash.unwrap();
-            let raw = self.hash_proposals.get_mut(&hash);
+            let raw = self.hash_proposals.get_mut(hash);
             if raw.is_none() {
                 info!("New proposal hash proposal is none {}", self);
                 self.send_proposal_request();

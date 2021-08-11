@@ -29,6 +29,7 @@ pub enum BftToCtlMsg {
 }
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum CtlBackBftMsg {
     GetProposalRes(u64, Vec<u8>),
     CheckProposalRes(u64, u64, bool),

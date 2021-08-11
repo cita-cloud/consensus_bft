@@ -18,7 +18,6 @@ use serde_derive::Deserialize;
 pub struct BftConfig {
     pub network_port: u16,
     pub controller_port: u16,
-    pub node_id: u64,
 }
 
 impl BftConfig {

@@ -311,6 +311,7 @@ struct RunOpts {
 async fn run(opts: RunOpts) {
     ::std::env::set_var("RUST_BACKTRACE", "full");
     ::std::env::set_var("DATA_PATH", "./data");
+    ::std::env::set_var("WAL_PATH", "./data/wal");
     info!("start consensus bft");
 
     let buffer = std::fs::read_to_string("consensus-config.toml")

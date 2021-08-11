@@ -134,7 +134,7 @@ impl Wal {
         let content = hstr.as_bytes();
         let len = content.len() as u64;
         self.ifile.set_len(len)?;
-        self.ifile.write_all(&content)?;
+        self.ifile.write_all(content)?;
         self.ifile.sync_data()?;
         Ok(len)
     }

@@ -76,10 +76,10 @@ impl RoundCollector {
             self.round_votes
                 .get_mut(&round)
                 .unwrap()
-                .add(sender, &sign_vote)
+                .add(sender, sign_vote)
         } else {
             let mut step_votes = StepCollector::new();
-            step_votes.add(sender, &sign_vote);
+            step_votes.add(sender, sign_vote);
             self.round_votes.insert(round, step_votes);
             true
         }
