@@ -1814,7 +1814,22 @@ impl Bft {
                 .unwrap_or(false)
             && self.proposal.is_none()
         {
-            self.leader_new_proposal(true);
+            if self.leader_new_proposal(true) {
+                self.step = Step::PrevoteWait;
+                let height = self.height;
+                let round = self.round;
+                // The code is for only one Node
+                if self.is_only_one_node() {
+                    info!(
+                        "after recv proposal,new in one node h {} r {}",
+                        height, round
+                    );
+                    self.leader_proc_prevote(height, round, None);
+                    if self.leader_proc_precommit(height, round, None) {
+                        return;
+                    }
+                }
+            }
         }
     }
 
