@@ -23,6 +23,7 @@ use std::{
 };
 
 const DELETE_FILE_INTERVAL: u64 = 8;
+const INDEX_NAME: &'static str = "index";
 
 #[derive(Debug, Clone, Copy)]
 pub enum LogType {
@@ -72,7 +73,7 @@ impl Wal {
             DirBuilder::new().recursive(true).create(dir)?;
         }
 
-        let file_path = dir.to_string() + "/" + "index";
+        let file_path = dir.to_string() + "/" + INDEX_NAME;
         let mut ifs = OpenOptions::new()
             .read(true)
             .create(true)
@@ -257,6 +258,21 @@ impl Wal {
             }
         }
         vec_out
+    }
+
+    pub fn clear_file(&mut self) -> io::Result<()> {
+        self.height_fs.clear();
+        for entry in read_dir(self.dir.clone())? {
+            let fpath = entry?.path();
+            let fname = fpath.file_name().map(|f| f.to_str()).flatten();
+            if let Some(fname) = fname {
+                if !fname.contains(INDEX_NAME) {
+                    let _ = ::std::fs::remove_file(fpath);
+                }
+            }
+        }
+        self.current_height = 0;
+        Ok(())
     }
 }
 

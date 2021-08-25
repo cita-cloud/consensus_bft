@@ -1,8 +1,8 @@
 use crate::crypto::Signature;
 use crate::types::H256;
 use crate::voteset::Proposal;
-use cita_cloud_proto::common::{ConsensusConfiguration, ProposalWithProof};
-use hashable::Hashable;
+use cita_cloud_proto::common::{ConsensusConfiguration, ProposalWithProof, StatusCode};
+use cita_hashable::Hashable;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
@@ -31,7 +31,7 @@ pub enum BftToCtlMsg {
 #[derive(Debug)]
 #[allow(clippy::enum_variant_names)]
 pub enum CtlBackBftMsg {
-    GetProposalRes(u64, Vec<u8>),
+    GetProposalRes(StatusCode, u64, Vec<u8>),
     CheckProposalRes(u64, u64, bool),
     CommitBlockRes(ConsensusConfiguration),
 }

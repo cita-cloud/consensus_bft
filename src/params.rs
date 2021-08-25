@@ -62,24 +62,16 @@ impl BftTimer {
         self.total_duration.get()
     }
 
-    pub fn set_total_duration(&self, duration: u64) {
+    pub(crate) fn set_total_duration(&self, duration: u64) {
         self.total_duration.set(duration);
     }
 
     pub fn get_propose(&self) -> Duration {
-        if self.total_duration.get() < LOW_LIMIT_TIMEVAL {
-            Duration::from_millis(LOW_LIMIT_TIMEVAL)
-        } else {
-            Duration::from_millis(self.total_duration.get() * self.propose.0 / self.propose.1)
-        }
+        Duration::from_millis(self.total_duration.get() * self.propose.0 / self.propose.1)
     }
 
     pub fn get_prevote(&self) -> Duration {
-        if self.total_duration.get() < LOW_LIMIT_TIMEVAL {
-            Duration::from_millis(LOW_LIMIT_TIMEVAL)
-        } else {
-            Duration::from_millis(self.total_duration.get() * self.prevote.0 / self.prevote.1)
-        }
+        Duration::from_millis(self.total_duration.get() * self.prevote.0 / self.prevote.1)
     }
 
     // pub fn get_precommit(&self) -> Duration {
@@ -91,7 +83,7 @@ impl BftTimer {
     // }
 
     #[allow(dead_code)]
-    fn get_commit(&self) -> Duration {
+    pub(crate) fn get_commit(&self) -> Duration {
         Duration::from_millis(self.total_duration.get() * self.commit.0 / self.commit.1)
     }
 }
@@ -108,6 +100,19 @@ impl BftParams {
             signer: Signer::from(priv_key.signer),
             timer: BftTimer::default(),
             issue_nil_block: true,
+        }
+    }
+
+    pub fn set_total_duration(&mut self, duration: u64) {
+        if duration == 0 {
+            self.timer.set_total_duration(3000);
+            self.issue_nil_block = false;
+        } else if duration < LOW_LIMIT_TIMEVAL {
+            self.timer.set_total_duration(LOW_LIMIT_TIMEVAL);
+            self.issue_nil_block = true;
+        } else {
+            self.timer.set_total_duration(duration);
+            self.issue_nil_block = true;
         }
     }
 }

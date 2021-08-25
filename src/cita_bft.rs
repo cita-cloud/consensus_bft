@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::authority_manage::AuthorityManage;
 use crate::crypto::{pubkey_to_address, CreateKey, Sign, Signature, SIGNATURE_BYTES_LEN};
+use crate::error::{EngineError, Mismatch};
 use crate::message::{
     BftSvrMsg, BftToCtlMsg, CtlBackBftMsg, FollowerVote, LeaderVote, NetworkProposal,
     SignedFollowerVote, SignedNetworkProposal, Step, VoteMsgType,
@@ -22,23 +24,20 @@ use crate::types::{Address, H256};
 use crate::voteset::{Proposal, ProposalCollector, VoteCollector, VoteSet};
 use crate::votetime::TimeoutInfo;
 use crate::wal::{LogType, Wal};
-use authority_manage::AuthorityManage;
 use bincode::deserialize;
 use cita_cloud_proto::common::{
     ConsensusConfiguration, Proposal as ProtoProposal, ProposalWithProof,
 };
 use cita_cloud_proto::network::NetworkMsg;
-use engine::{unix_now, EngineError, Mismatch};
-use hashable::Hashable;
+use cita_hashable::Hashable;
 use log::{debug, error, info, trace, warn};
 
+use arrayref::array_ref;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::convert::{From, Into};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-// #[macro_use]
-// use lazy_static;
 
 const INIT_HEIGHT: u64 = 1;
 const INIT_ROUND: u64 = 0;
@@ -67,6 +66,10 @@ impl From<i8> for VerifiedProposalStatus {
             _ => panic!("Invalid VerifiedProposalStatus."),
         }
     }
+}
+
+fn unix_now() -> Duration {
+    ::std::time::UNIX_EPOCH.elapsed().unwrap()
 }
 
 pub struct BftChannls {
@@ -153,7 +156,7 @@ impl Bft {
         params: BftParams,
         bft_channels: BftChannls,
     ) -> Bft {
-        let logpath = ::std::env::var("WAL_PATH").unwrap_or_else(|_| "./data/wal".to_string());
+        let logpath = ::std::env::var("WAL_PATH").unwrap_or("./data/wal".to_string());
         info!("start cita-bft log {}", logpath);
         let auth_manage = AuthorityManage::new();
         let is_consensus_node = auth_manage.validators.contains(&params.signer.address);
@@ -305,21 +308,37 @@ impl Bft {
     }
 
     fn proc_new_view(&mut self, height: u64, round: u64) -> bool {
-        debug!(
-            "Uniform proc new view {} begin h: {}, r: {}",
-            self, height, round
-        );
+        debug!("proc new view {} begin h: {}, r: {}", self, height, round);
         // This tobe considered the step
         if self.check_vote_over_period(height, round, Step::PrecommitWait) {
             return false;
         }
 
         let vote_set = self.votes.get_voteset(height, round, Step::NewView);
-        trace!("Uniform proc newview {} vote_set: {:?}", self, vote_set);
+        trace!("proc newview {} vote_set: {:?}", self, vote_set);
         let vlen = vote_set.as_ref().map(|v| v.count).unwrap_or(0);
 
         if vlen > 0 && self.is_equal_threshold(vlen) {
             self.pub_newview_message(height, round);
+            {
+                if !self.params.issue_nil_block {
+                    // Find the honest nil round
+                    let fnum = self.get_faulty_limit_number();
+                    let mut sum = 0;
+                    for (hash, count) in vote_set.unwrap().votes_by_proposal.iter().rev() {
+                        sum += count;
+                        if sum > fnum {
+                            let nround = hash.to_low_u64_le();
+                            // Set the nil round as the majority's
+                            if self.nil_round.0 != nround {
+                                self.nil_round.0 = nround;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
             self.new_round_start(height, round + 1);
             return true;
         } else if self.is_only_one_node() {
@@ -484,9 +503,9 @@ impl Bft {
         false
     }
 
-    // fn get_faulty_limit_number(&self) -> u64 {
-    //     self.auth_manage.validator_n() as u64 / 3
-    // }
+    fn get_faulty_limit_number(&self) -> u64 {
+        (self.auth_manage.validator_n() as u64 + 2) / 3 - 1
+    }
 
     fn is_above_threshold(&self, n: u64) -> bool {
         n * 3 > self.auth_manage.validator_n() as u64 * 2
@@ -497,7 +516,7 @@ impl Bft {
     }
 
     fn is_equal_threshold(&self, n: u64) -> bool {
-        n == (self.auth_manage.validator_n() as u64 * 2) / 3
+        self.get_faulty_limit_number() * 2 == n
     }
 
     fn is_all_vote(&self, n: u64) -> bool {
@@ -721,7 +740,15 @@ impl Bft {
     }
 
     fn pub_newview_message(&mut self, height: u64, round: u64) {
-        self.pub_follower_message(height, round, Step::NewView, None);
+        let hash = {
+            if self.params.issue_nil_block {
+                None
+            } else {
+                Some(H256::from_low_u64_le(self.nil_round.0 as u64))
+            }
+        };
+
+        self.pub_follower_message(height, round, Step::NewView, hash);
     }
 
     fn pub_follower_message(&mut self, height: u64, round: u64, step: Step, hash: Option<H256>) {
@@ -920,11 +947,11 @@ impl Bft {
         let s = lvote.step;
 
         if h < self.height || (h == self.height && r < self.round) {
-            return Err(EngineError::VoteMsgDelay(r as usize));
+            return Err(EngineError::VoteMsgDelay(h, r));
         }
 
         if h > self.height {
-            return Err(EngineError::VoteMsgForth(h as usize));
+            return Err(EngineError::VoteMsgForth(h, r));
         }
 
         if lvote.hash.is_none() || lvote.hash.unwrap().is_zero() {
@@ -993,7 +1020,7 @@ impl Bft {
 
         info!("handle_newview h {} r {}", h, r);
         if h < self.height {
-            return Err(EngineError::VoteMsgDelay(h as usize));
+            return Err(EngineError::VoteMsgDelay(h, r));
         }
         // if h > self.height {
         //     self.send_proposal_request();
@@ -1024,7 +1051,7 @@ impl Bft {
                 self.pub_newview_message(h, r);
                 info!("Pub newview for old round h {} r {}", h, r);
             }
-            return Err(EngineError::VoteMsgDelay(r as usize));
+            return Err(EngineError::VoteMsgDelay(h, r));
         }
 
         /*bellow commit content is suit for when chain not syncing ,but consensus need
@@ -1042,7 +1069,7 @@ impl Bft {
             let ret = self.votes.add(sender, &fvote);
             if ret {
                 if h > self.height {
-                    return Err(EngineError::VoteMsgForth(h as usize));
+                    return Err(EngineError::VoteMsgForth(h, r));
                 }
                 return Ok((h, r));
             }
@@ -1064,7 +1091,7 @@ impl Bft {
         let s = fvote.vote.step;
 
         if h < self.height {
-            return Err(EngineError::VoteMsgDelay(h as usize));
+            return Err(EngineError::VoteMsgDelay(h, r));
         }
         let sender = Self::design_message(fvote.sig.clone(), fvote.vote.clone());
         if !self.is_validator(&sender) {
@@ -1092,7 +1119,7 @@ impl Bft {
                 let ret = self.votes.add(sender, &fvote);
                 if ret {
                     if h > self.height || r > self.round {
-                        return Err(EngineError::VoteMsgForth(h as usize));
+                        return Err(EngineError::VoteMsgForth(h, r));
                     }
                     return Ok((h, r, fvote.vote.hash));
                 }
@@ -1212,13 +1239,13 @@ impl Bft {
             || (height == self.height && round == self.round && self.step > Step::ProposeWait)
         {
             info!("Handle proposal {} get old proposal", self);
-            return Err(EngineError::VoteMsgDelay(height as usize));
+            return Err(EngineError::VoteMsgDelay(height, round));
         } else if height == self.height && self.step == Step::CommitWait {
             info!(
                 "Not handle proposal {} because conensus is ok in height",
                 self
             );
-            return Err(EngineError::VoteMsgForth(round as usize));
+            return Err(EngineError::VoteMsgForth(height, round));
         }
 
         info!(
@@ -1231,13 +1258,13 @@ impl Bft {
             || (height == self.height && round == self.round && self.step > Step::ProposeWait)
         {
             debug!("Handle proposal {} get old proposal", self);
-            return Err(EngineError::VoteMsgDelay(height as usize));
+            return Err(EngineError::VoteMsgDelay(height, round));
         } else if height == self.height && self.step == Step::CommitWait {
             debug!(
                 "Not handle proposal {} because conensus is ok in height",
                 self
             );
-            return Err(EngineError::VoteMsgForth(round as usize));
+            return Err(EngineError::VoteMsgForth(height, round));
         }
 
         let sender = Self::design_message(signature, sign_proposal.proposal.clone());
@@ -1248,6 +1275,18 @@ impl Bft {
                 expected: Address::default(),
                 found: sender,
             }));
+        }
+
+        if sign_proposal.proposal.raw_proposal.is_empty() {
+            if !self.params.issue_nil_block {
+                info!("Handle proposal {} get nil body", self);
+                if round > self.nil_round.1 {
+                    self.nil_round.1 = round;
+                    self.nil_round.0 += 1;
+                }
+                self.send_proposal_request();
+            }
+            return Err(EngineError::NoTxInProposal);
         }
 
         trace!(
@@ -1295,7 +1334,7 @@ impl Bft {
                     return Err(EngineError::InvalidTxInProposal);
                 }
             }
-            return Err(EngineError::VoteMsgForth(height as usize));
+            return Err(EngineError::VoteMsgForth(height, round));
         }
         Err(EngineError::InvalidTimeInterval)
     }
@@ -1363,8 +1402,14 @@ impl Bft {
                 self.send_proposal_request();
                 return false;
             }
+
             let hash = hash.unwrap();
-            let raw = self.hash_proposals.get_mut(hash);
+            if !self.params.issue_nil_block && hash.is_zero() {
+                self.nil_round.0 += 1;
+                self.nil_round.1 = self.round;
+            }
+
+            let raw = self.hash_proposals.get_mut(&hash);
             if raw.is_none() {
                 info!("New proposal hash proposal is none {}", self);
                 self.send_proposal_request();
@@ -1797,15 +1842,32 @@ impl Bft {
         if h < self.height {
             return;
         }
-        let hash = proposal.crypt_hash();
-        self.hash_proposals
-            .insert(hash, (proposal, VerifiedProposalStatus::Ok));
-        self.self_proposal.insert(h, hash);
 
-        info!(
-            "--- recv_new_height_proposal h: {:?} hash {:?} self {:?}",
-            h, hash, self
-        );
+        if proposal.is_empty() {
+            let v = self
+                .self_proposal
+                .entry(h)
+                .or_insert(H256::zero())
+                .to_owned();
+            if v.is_zero() {
+                self.hash_proposals
+                    .insert(H256::zero(), (Vec::new(), VerifiedProposalStatus::Ok));
+            }
+
+            info!(
+                "recv_new_height_proposal nil proposal h: {:?},but saved value {:?} self {:?}",
+                h, v, self
+            );
+        } else {
+            let hash = proposal.crypt_hash();
+            self.hash_proposals
+                .insert(hash, (proposal, VerifiedProposalStatus::Ok));
+
+            info!(
+                "recv_new_height_proposal h: {:?} hash {:?} self {:?}",
+                h, hash, self
+            );
+        }
 
         if h == self.height
             && self.step == Step::ProposeWait
@@ -1829,8 +1891,9 @@ impl Bft {
             conf_height
         );
 
+        // Not return,obey the config
         if conf_height < self.height {
-            return;
+            let _ = self.wal_log.borrow_mut().clear_file();
         }
 
         let config_interval = Duration::from_millis(self.params.timer.get_total_duration());
@@ -1868,11 +1931,13 @@ impl Bft {
 
     fn set_config(&mut self, config: ConsensusConfiguration) {
         self.params
-            .timer
             .set_total_duration((config.block_interval * 1000) as u64);
         let mut validators = Vec::new();
+        const ALEN: usize = Address::len_bytes();
         for v in config.validators {
-            validators.push(Address::from(&v[..]));
+            if v.len() >= ALEN {
+                validators.push(Address::from(array_ref![v, 0, ALEN]));
+            }
         }
         self.auth_manage
             .receive_authorities_list(config.height as usize, &validators, &validators);
@@ -1906,14 +1971,15 @@ impl Bft {
                         match svrmsg {
                             BftSvrMsg::Conf(config) => {
                                 let h = config.height;
+                                if h + 1 < self.height {
+                                    let _ = self.wal_log.borrow_mut().clear_file();
+                                }
                                 self.set_config(config);
-                                self.set_hrs(h+1,INIT_ROUND,Step::ProposeWait);
-                                self.set_state_timeout(h+1,INIT_ROUND,Step::ProposeWait, Duration::new(0,0));
+                                self.new_round_start(h + 1, INIT_ROUND);
                             },
                             BftSvrMsg::PProof(pproof,tx) => {
                                 let res = self.check_proposal_proof(pproof);
                                 tx.send(res).unwrap();
-
                             }
                         }
                     }
@@ -1922,9 +1988,15 @@ impl Bft {
                 cback = self.bft_channels.ctl_back_rx.recv() => {
                     if let Some(cback) = cback {
                         match cback {
-                            CtlBackBftMsg::GetProposalRes(height,proposal) => {
+                            CtlBackBftMsg::GetProposalRes(scode,height,proposal) => {
                                 info!("recv to control back GetProposalRes height {:?}",height);
-                                self.recv_new_height_proposal(height,proposal);
+                                if scode.code == u32::from(status_code::StatusCode::NoneProposal)
+                                    && !self.params.issue_nil_block {
+                                    self.recv_new_height_proposal(height,Vec::new());
+                                } else {
+                                    self.recv_new_height_proposal(height,proposal);
+                                }
+
                             },
                             CtlBackBftMsg::CheckProposalRes(height,round,res) => {
                                 trace!(

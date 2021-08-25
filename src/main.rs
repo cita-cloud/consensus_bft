@@ -1,6 +1,9 @@
+mod authority_manage;
 mod cita_bft;
 mod config;
+mod error;
 mod message;
+mod panic_hook;
 mod params;
 mod voteset;
 mod votetime;
@@ -10,8 +13,8 @@ use cita_crypto as crypto;
 use cita_types as types;
 
 use message::{BftSvrMsg, BftToCtlMsg, CtlBackBftMsg};
+use panic_hook::set_panic_handler;
 use tokio::task;
-use util::set_panic_handler;
 
 use log::{debug, error, info, warn};
 use std::str::FromStr;
@@ -25,7 +28,7 @@ use git_version::git_version;
 use types::{clean_0x, Address};
 
 use cita_cloud_proto::common::{
-    ConsensusConfiguration, Empty, Proposal as ProtoProposal, ProposalWithProof, SimpleResponse,
+    ConsensusConfiguration, Empty, Proposal as ProtoProposal, ProposalWithProof, StatusCode,
 };
 use cita_cloud_proto::consensus::consensus_service_server::{
     ConsensusService, ConsensusServiceServer,
@@ -35,6 +38,7 @@ use cita_cloud_proto::network::network_msg_handler_service_server::NetworkMsgHan
 use cita_cloud_proto::network::network_msg_handler_service_server::NetworkMsgHandlerServiceServer;
 use cita_cloud_proto::network::network_service_client::NetworkServiceClient;
 use cita_cloud_proto::network::{NetworkMsg, RegisterInfo};
+use status_code;
 use tonic::transport::channel::Channel;
 use tonic::{transport::Server, Request};
 
@@ -56,23 +60,29 @@ impl ConsensusService for BftSvr {
     async fn reconfigure(
         &self,
         request: tonic::Request<ConsensusConfiguration>,
-    ) -> std::result::Result<tonic::Response<SimpleResponse>, tonic::Status> {
+    ) -> std::result::Result<tonic::Response<StatusCode>, tonic::Status> {
         let config = request.into_inner();
         self.to_bft_tx.send(BftSvrMsg::Conf(config)).unwrap();
-        let reply = SimpleResponse { is_success: true };
+        let reply = StatusCode {
+            code: status_code::StatusCode::Success.into(),
+        };
         Ok(tonic::Response::new(reply))
     }
 
     async fn check_block(
         &self,
         request: tonic::Request<ProposalWithProof>,
-    ) -> std::result::Result<tonic::Response<SimpleResponse>, tonic::Status> {
+    ) -> std::result::Result<tonic::Response<StatusCode>, tonic::Status> {
         let pp = request.into_inner();
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.to_bft_tx.send(BftSvrMsg::PProof(pp, tx)).unwrap();
         let res = rx.await.unwrap();
-        let reply = SimpleResponse { is_success: res };
-        Ok(tonic::Response::new(reply))
+        let code = if res {
+            status_code::StatusCode::Success.into()
+        } else {
+            status_code::StatusCode::ProposalCheckError.into()
+        };
+        Ok(tonic::Response::new(StatusCode { code }))
     }
 }
 
@@ -128,8 +138,14 @@ impl BftToCtl {
                         .map(|resp| resp.into_inner());
 
                     if let Ok(res) = response {
-                        let msg = CtlBackBftMsg::GetProposalRes(res.height, res.data);
-                        b2c.back_bft_tx.send(msg).unwrap();
+                        if let Some((status, proposal)) = res.status.zip(res.proposal) {
+                            let msg = CtlBackBftMsg::GetProposalRes(
+                                status,
+                                proposal.height,
+                                proposal.data,
+                            );
+                            b2c.back_bft_tx.send(msg).unwrap();
+                        }
                     }
                 }
 
@@ -139,10 +155,18 @@ impl BftToCtl {
                     let response = client
                         .check_proposal(request)
                         .await
-                        .map(|resp| resp.into_inner().is_success);
+                        .map(|resp| resp.into_inner());
 
                     let res = match response {
-                        Ok(res) => res,
+                        Ok(scode) => {
+                            if status_code::StatusCode::from(scode.code)
+                                == status_code::StatusCode::Success
+                            {
+                                true
+                            } else {
+                                false
+                            }
+                        }
                         Err(status) => {
                             warn!("CheckProposalReq failed: {:?}", status);
                             false
@@ -163,8 +187,15 @@ impl BftToCtl {
                         match response {
                             Ok(res) => {
                                 let config = res.into_inner();
-                                let msg = CtlBackBftMsg::CommitBlockRes(config);
-                                back_bft_tx.send(msg).unwrap();
+                                if let Some((status, config)) = config.status.zip(config.config) {
+                                    if status_code::StatusCode::from(status.code)
+                                        == status_code::StatusCode::Success
+                                    {
+                                        back_bft_tx
+                                            .send(CtlBackBftMsg::CommitBlockRes(config))
+                                            .unwrap();
+                                    }
+                                }
                             }
                             Err(e) => warn!("{:?}", e),
                         }
@@ -223,7 +254,7 @@ impl BftToNet {
             });
 
             let response = client.register_network_msg_handler(request).await.unwrap();
-            if response.into_inner().is_success {
+            if response.into_inner().code == u32::from(status_code::StatusCode::Success) {
                 break;
             }
         }
@@ -261,14 +292,16 @@ impl NetworkMsgHandlerService for NetToBft {
     async fn process_network_msg(
         &self,
         request: tonic::Request<NetworkMsg>,
-    ) -> std::result::Result<tonic::Response<SimpleResponse>, tonic::Status> {
+    ) -> std::result::Result<tonic::Response<StatusCode>, tonic::Status> {
         let msg = request.into_inner();
         if msg.module != "consensus" {
             Err(tonic::Status::invalid_argument("wrong module"))
         } else {
             info!("get netmsg module {:?} type {:?}", msg.module, msg.r#type);
             self.to_bft_tx.send(msg).unwrap();
-            let reply = SimpleResponse { is_success: true };
+            let reply = StatusCode {
+                code: status_code::StatusCode::Success.into(),
+            };
             Ok(tonic::Response::new(reply))
         }
     }
