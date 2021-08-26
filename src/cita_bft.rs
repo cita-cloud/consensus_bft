@@ -1825,9 +1825,7 @@ impl Bft {
                     height, round
                 );
                 self.leader_proc_prevote(height, round, None);
-                if self.leader_proc_precommit(height, round, None) {
-                    return;
-                }
+                self.leader_proc_precommit(height, round, None);
             }
         }
     }
