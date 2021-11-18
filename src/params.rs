@@ -12,27 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::crypto::{PrivKey, Signer};
-use crate::types::clean_0x;
-use serde::Deserialize;
 use std::cell::Cell;
 
+use crate::config::BftConfig;
+use cita_types::Address;
 use std::str::FromStr;
 use std::time::Duration;
-
-const LOW_LIMIT_TIMEVAL: u64 = 600;
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct PrivateKey {
-    signer: PrivKey,
-}
-
-impl PrivateKey {
-    pub fn new(sk: &str) -> Self {
-        let signer = PrivKey::from_str(clean_0x(sk)).expect("Private key is wrong.");
-        PrivateKey { signer }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct BftTimer {
@@ -43,16 +28,18 @@ pub struct BftTimer {
     prevote: (u64, u64),
     precommit: (u64, u64),
     commit: (u64, u64),
+    low_limit_timeval: u64,
 }
 
-impl Default for BftTimer {
-    fn default() -> Self {
-        BftTimer {
-            total_duration: Cell::new(3000),
-            propose: (24, 30),
-            prevote: (6, 30),
-            precommit: (6, 30),
-            commit: (4, 30),
+impl BftTimer {
+    pub fn new(config: &BftConfig) -> Self {
+        Self {
+            total_duration: Cell::new(config.block_interval),
+            propose: (config.propose_phase, config.whole_phase),
+            prevote: (config.prevote_phase, config.whole_phase),
+            precommit: (config.precommit_phase, config.whole_phase),
+            commit: (config.commit_phase, config.whole_phase),
+            low_limit_timeval: config.low_limit_interval,
         }
     }
 }
@@ -90,16 +77,18 @@ impl BftTimer {
 
 pub struct BftParams {
     pub timer: BftTimer,
-    pub signer: Signer,
+    pub node_address: Address,
     pub issue_nil_block: bool,
+    pub key_id: u64,
 }
 
 impl BftParams {
-    pub fn new(priv_key: &PrivateKey) -> Self {
+    pub fn new(config: &BftConfig) -> Self {
         BftParams {
-            signer: Signer::from(priv_key.signer),
-            timer: BftTimer::default(),
-            issue_nil_block: true,
+            node_address: Address::from_str(&config.node_address).unwrap(),
+            timer: BftTimer::new(config),
+            issue_nil_block: config.issue_nil_block,
+            key_id: config.key_id,
         }
     }
 
@@ -107,8 +96,8 @@ impl BftParams {
         if duration == 0 {
             self.timer.set_total_duration(3000);
             self.issue_nil_block = false;
-        } else if duration < LOW_LIMIT_TIMEVAL {
-            self.timer.set_total_duration(LOW_LIMIT_TIMEVAL);
+        } else if duration < self.timer.low_limit_timeval {
+            self.timer.set_total_duration(self.timer.low_limit_timeval);
             self.issue_nil_block = true;
         } else {
             self.timer.set_total_duration(duration);

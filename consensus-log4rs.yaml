@@ -1,5 +1,4 @@
 # Scan this file for changes every 30 seconds
-
 refresh_rate: 30 seconds
 
 appenders:
@@ -18,7 +17,7 @@ appenders:
       # deserializer, and will vary based on the kind of policy.
       trigger:
         kind: size
-        limit: 1mb
+        limit: 50mb
       roller:
         kind: fixed_window
         base: 1
@@ -26,11 +25,7 @@ appenders:
         pattern: "logs/consensus-service.{}.gz"
 
 # Set the default logging level and attach the default appender to the root
-
 root:
   level: info
   appenders:
     - journey-service
-  loggers:
-    cita_bft:
-      level: info 

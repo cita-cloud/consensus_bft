@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use crate::authority_manage::AuthorityManage;
-use crate::crypto::{pubkey_to_address, CreateKey, Sign, Signature, SIGNATURE_BYTES_LEN};
 use crate::error::{EngineError, Mismatch};
 use crate::message::{
     BftSvrMsg, BftToCtlMsg, CtlBackBftMsg, FollowerVote, LeaderVote, NetworkProposal,
@@ -29,9 +28,9 @@ use cita_cloud_proto::common::{
     ConsensusConfiguration, Proposal as ProtoProposal, ProposalWithProof,
 };
 use cita_cloud_proto::network::NetworkMsg;
-use cita_hashable::Hashable;
 use log::{debug, error, info, trace, warn};
 
+use crate::util::{hash_msg, recover_sig, sign_msg};
 use arrayref::array_ref;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -156,10 +155,10 @@ impl Bft {
         params: BftParams,
         bft_channels: BftChannls,
     ) -> Bft {
-        let logpath = ::std::env::var("WAL_PATH").unwrap_or("./data/wal".to_string());
+        let logpath = ::std::env::var("WAL_PATH").unwrap_or_else(|_| "./data/wal".to_string());
         info!("start cita-bft log {}", logpath);
         let auth_manage = AuthorityManage::new();
-        let is_consensus_node = auth_manage.validators.contains(&params.signer.address);
+        let is_consensus_node = auth_manage.validators.contains(&params.node_address);
         Bft {
             params,
             height: 0,
@@ -230,7 +229,7 @@ impl Bft {
     }
 
     pub fn pub_proposal(&mut self, signed_proposal: &SignedNetworkProposal) {
-        self.send_raw_net_msg(VoteMsgType::Proposal.into(), 0, signed_proposal.clone());
+        self.send_raw_net_msg(VoteMsgType::Proposal.into(), 0, signed_proposal);
     }
 
     fn follower_proc_prevote(&mut self, height: u64, round: u64, hash: H256) -> bool {
@@ -625,14 +624,13 @@ impl Bft {
                             return false;
                         }
 
-                        let vmsg: Vec<u8> = LeaderVote {
+                        let vmsg = Vec::from(&LeaderVote {
                             height,
                             round,
                             step: Step::Precommit,
                             hash: Some(hash),
                             votes: lv,
-                        }
-                        .into();
+                        });
 
                         let _ = self.wal_save_message(height, LogType::QuorumVotes, &vmsg);
                         //self.wal_save_state_step(height, round, Step::PrecommitWait);
@@ -698,7 +696,7 @@ impl Bft {
                     votes,
                 };
                 info!("gennerate proof ok {:?}", self);
-                return Some(lv.into());
+                return Some(Vec::from(&lv));
             }
         }
         None
@@ -787,9 +785,9 @@ impl Bft {
             hash,
         };
 
-        let sig = self.sign_msg(vote.clone());
+        let sig = sign_msg(&Vec::from(&vote), self.params.key_id);
         let sv = SignedFollowerVote { vote, sig };
-        self.send_raw_net_msg(net_msg_type.into(), origin, sv);
+        self.send_raw_net_msg(net_msg_type.into(), origin, &sv);
     }
 
     fn collect_votes(vote_set: &VoteSet, hash: H256) -> Vec<SignedFollowerVote> {
@@ -832,7 +830,7 @@ impl Bft {
                             hash: Some(hash),
                             votes,
                         };
-                        let lv_data: Vec<u8> = lv.into();
+                        let lv_data = Vec::from(&lv);
                         self.wal_save_message(height, LogType::QuorumVotes, &lv_data);
                         self.send_raw_net_msg(net_msg_type.into(), 0, lv_data)
                     } else {
@@ -841,13 +839,17 @@ impl Bft {
                 }
             }
             _ => {
-                self.send_raw_net_msg(net_msg_type.into(), 0, LeaderVote::new(height, round, step));
+                self.send_raw_net_msg(
+                    net_msg_type.into(),
+                    0,
+                    &LeaderVote::new(height, round, step),
+                );
             }
         }
     }
 
     fn check_proposal_proof(&self, pproof: ProposalWithProof) -> bool {
-        let phash = pproof.proposal.unwrap().data.crypt_hash();
+        let phash = hash_msg(&pproof.proposal.unwrap().data);
         let lvote: LeaderVote = deserialize(&pproof.proof).unwrap_or_default();
         info!(
             "----- check_proposal_proof phash {:?} leader vote {:?}",
@@ -866,7 +868,7 @@ impl Bft {
 
         let mut senders = std::collections::HashSet::new();
         for sign_vote in &lvote.votes {
-            let sender = Self::design_message(sign_vote.sig.clone(), sign_vote.vote.clone());
+            let sender = Self::design_message(&sign_vote.sig, &sign_vote.vote);
 
             info!("----- check_proposal_proof sender {:?}", sender);
             if !self.is_validator(&sender) && !self.is_validator_old(&sender) {
@@ -904,11 +906,9 @@ impl Bft {
             step,
             hash,
         };
-        let sig = self.sign_msg(vote.clone());
-        self.votes.add(
-            self.params.signer.address,
-            &SignedFollowerVote { vote, sig },
-        )
+        let sig = sign_msg(&Vec::from(&vote), self.params.key_id);
+        self.votes
+            .add(self.params.node_address, &SignedFollowerVote { vote, sig })
     }
 
     fn is_validator(&self, address: &Address) -> bool {
@@ -963,7 +963,7 @@ impl Bft {
         }
 
         for sign_vote in &lvote.votes {
-            let sender = Self::design_message(sign_vote.sig.clone(), sign_vote.vote.clone());
+            let sender = Self::design_message(&sign_vote.sig, &sign_vote.vote);
             if !self.is_validator(&sender) {
                 return Err(EngineError::NotAuthorized(sender));
             }
@@ -1025,7 +1025,7 @@ impl Bft {
         // if h > self.height {
         //     self.send_proposal_request();
         // }
-        let sender = Self::design_message(fvote.sig.clone(), fvote.vote.clone());
+        let sender = Self::design_message(&fvote.sig, &fvote.vote);
         info!("handle_newview sender {:?}", sender);
         if !self.is_validator(&sender) {
             return Err(EngineError::NotAuthorized(sender));
@@ -1093,13 +1093,13 @@ impl Bft {
         if h < self.height {
             return Err(EngineError::VoteMsgDelay(h, r));
         }
-        let sender = Self::design_message(fvote.sig.clone(), fvote.vote.clone());
+        let sender = Self::design_message(&fvote.sig, &fvote.vote);
         if !self.is_validator(&sender) {
             return Err(EngineError::NotAuthorized(sender));
         }
 
         if self
-            .is_round_leader(h, r, &self.params.signer.address)
+            .is_round_leader(h, r, &self.params.node_address)
             .unwrap_or(false)
         {
             /*bellow commit content is suit for when chain not syncing ,but consensus need
@@ -1127,7 +1127,7 @@ impl Bft {
             }
         }
         Err(EngineError::NotProposer(Mismatch {
-            expected: self.params.signer.address,
+            expected: self.params.node_address,
             found: sender,
         }))
     }
@@ -1193,13 +1193,9 @@ impl Bft {
             .send(BftToCtlMsg::CheckProposalReq(height, round, raw_proposal));
     }
 
-    fn design_message<T: Into<Vec<u8>>>(signature: Signature, msg: T) -> Address {
+    fn design_message<T: Into<Vec<u8>>>(sig: &[u8], msg: T) -> Address {
         let msg: Vec<u8> = msg.into();
-        let hash = msg.crypt_hash();
-        if let Ok(pubkey) = signature.recover(&hash) {
-            return pubkey_to_address(&pubkey);
-        }
-        Address::zero()
+        Address::from_slice(&recover_sig(sig, &msg))
     }
 
     fn check_proposal_hash(&mut self, hash: &H256) -> Option<bool> {
@@ -1227,11 +1223,6 @@ impl Bft {
         if self.proposals.get_proposal(height, round).is_some() {
             trace!("handle_proposal proposal recieved");
             return Err(EngineError::DoubleVote(Address::zero()));
-        }
-
-        let signature = sign_proposal.sig;
-        if signature.len() != SIGNATURE_BYTES_LEN {
-            return Err(EngineError::InvalidSignature);
         }
 
         if height < self.height
@@ -1267,7 +1258,7 @@ impl Bft {
             return Err(EngineError::VoteMsgForth(height, round));
         }
 
-        let sender = Self::design_message(signature, sign_proposal.proposal.clone());
+        let sender = Self::design_message(&sign_proposal.sig, &sign_proposal.proposal);
         let ret = self.is_round_leader(height, round, &sender);
         if !ret.unwrap_or(false) {
             warn!("Handle proposal {},{:?} is not round leader ", self, sender);
@@ -1361,16 +1352,6 @@ impl Bft {
         self.send_filter.clear();
     }
 
-    fn sign_msg<T>(&self, can_hash: T) -> Signature
-    where
-        T: Into<Vec<u8>>,
-    {
-        let message: Vec<u8> = can_hash.into();
-        let author = &self.params.signer;
-        let hash = message.crypt_hash();
-        Signature::sign(author.keypair.privkey(), &hash).unwrap()
-    }
-
     pub fn leader_new_proposal(&mut self, save_flag: bool) -> bool {
         let mut sign_prop = SignedNetworkProposal::new();
 
@@ -1384,7 +1365,7 @@ impl Bft {
                     let mut cp =
                         NetworkProposal::new_with_proposal(self.height, self.round, proposal);
                     cp.set_raw_proposal(raw);
-                    let sig = self.sign_msg(cp.clone());
+                    let sig = sign_msg(&Vec::from(&cp), self.params.key_id);
                     sign_prop.set(cp, sig);
                     info!("New proposal proposal lock block {:?}", self);
                 } else {
@@ -1409,7 +1390,7 @@ impl Bft {
                 self.nil_round.1 = self.round;
             }
 
-            let raw = self.hash_proposals.get_mut(&hash);
+            let raw = self.hash_proposals.get_mut(hash);
             if raw.is_none() {
                 info!("New proposal hash proposal is none {}", self);
                 self.send_proposal_request();
@@ -1417,11 +1398,11 @@ impl Bft {
             }
             self.proposal = Some(*hash);
             let raw = raw.unwrap().0.to_owned();
-            let p = Proposal::new(raw.crypt_hash());
+            let p = Proposal::new(hash_msg(&raw));
             self.proposals.add(self.height, self.round, p.clone());
             let mut cp = NetworkProposal::new_with_proposal(self.height, self.round, p);
             cp.set_raw_proposal(raw);
-            let sig = self.sign_msg(cp.clone());
+            let sig = sign_msg(&Vec::from(&cp), self.params.key_id);
             sign_prop.set(cp, sig);
             info!("New proposal proposal {:?}", self);
         }
@@ -1520,7 +1501,7 @@ impl Bft {
                 };
 
                 let ret =
-                    self.is_round_leader(tminfo.height, tminfo.round, &self.params.signer.address);
+                    self.is_round_leader(tminfo.height, tminfo.round, &self.params.node_address);
                 if ret.is_ok() && ret.unwrap() {
                     self.leader_proc_timeout_vote(tminfo.height, tminfo.round, step);
                 } else {
@@ -1660,7 +1641,7 @@ impl Bft {
             remaining_time, self
         );
 
-        info!("------- self address {:?}", self.params.signer.address);
+        info!("------- self address {:?}", self.params.node_address);
         if round == INIT_ROUND {
             self.wal_new_height(height);
             self.start_time = unix_now() + remaining_time;
@@ -1674,7 +1655,7 @@ impl Bft {
         let mut tv = self.proposal_interval_round_exp(round);
         let mut step = Step::ProposeWait;
         if self
-            .is_round_leader(height, round, &self.params.signer.address)
+            .is_round_leader(height, round, &self.params.node_address)
             .unwrap_or(false)
         {
             if self.leader_new_proposal(true) {
@@ -1710,7 +1691,7 @@ impl Bft {
             }
             Step::Prevote | Step::PrevoteWait => {
                 if let Ok(is_leader) =
-                    self.is_round_leader(height, round, &self.params.signer.address)
+                    self.is_round_leader(height, round, &self.params.node_address)
                 {
                     if is_leader {
                         self.add_leader_self_vote(height, round, Step::Prevote, self.proposal);
@@ -1736,7 +1717,7 @@ impl Bft {
             }
             Step::Precommit | Step::PrecommitWait => {
                 if let Ok(is_leader) =
-                    self.is_round_leader(height, round, &self.params.signer.address)
+                    self.is_round_leader(height, round, &self.params.node_address)
                 {
                     if is_leader {
                         if self.lock_round.is_some() {
@@ -1818,7 +1799,7 @@ impl Bft {
                         self.set_hrs(h, r, s);
 
                         if self
-                            .is_round_leader(h, r, &self.params.signer.address)
+                            .is_round_leader(h, r, &self.params.node_address)
                             .unwrap_or(false)
                         {
                             if s == Step::Prevote {
@@ -1847,7 +1828,7 @@ impl Bft {
             let v = self
                 .self_proposal
                 .entry(h)
-                .or_insert(H256::zero())
+                .or_insert_with(H256::zero)
                 .to_owned();
             if v.is_zero() {
                 self.hash_proposals
@@ -1859,9 +1840,10 @@ impl Bft {
                 h, v, self
             );
         } else {
-            let hash = proposal.crypt_hash();
+            let hash = hash_msg(&proposal);
             self.hash_proposals
                 .insert(hash, (proposal, VerifiedProposalStatus::Ok));
+            self.self_proposal.insert(h, hash);
 
             info!(
                 "recv_new_height_proposal h: {:?} hash {:?} self {:?}",
@@ -1872,7 +1854,7 @@ impl Bft {
         if h == self.height
             && self.step == Step::ProposeWait
             && self
-                .is_round_leader(self.height, self.round, &self.params.signer.address)
+                .is_round_leader(self.height, self.round, &self.params.node_address)
                 .unwrap_or(false)
             && self.proposal.is_none()
             && self.leader_new_proposal(true)
@@ -1916,7 +1898,7 @@ impl Bft {
         self.set_config(config);
 
         if !self
-            .is_round_leader(conf_height + 1, INIT_ROUND, &self.params.signer.address)
+            .is_round_leader(conf_height + 1, INIT_ROUND, &self.params.node_address)
             .unwrap_or(false)
             || self.is_only_one_node()
         {
@@ -1954,10 +1936,10 @@ impl Bft {
         self.auth_manage
             .receive_authorities_list(config.height as usize, &validators, &validators);
 
-        if self.is_validator(&self.params.signer.address) {
+        if self.is_validator(&self.params.node_address) {
             self.is_consensus_node = true;
             if self
-                .is_round_leader(config.height + 1, INIT_ROUND, &self.params.signer.address)
+                .is_round_leader(config.height + 1, INIT_ROUND, &self.params.node_address)
                 .unwrap_or(false)
             {
                 self.send_proposal_request();
@@ -2034,8 +2016,8 @@ impl Bft {
 
 
                                             if !msg.is_empty() {
-                                                let smsg:Vec<u8> = NetworkProposal::new(height,round,msg).into();
-                                                self.wal_save_message(height,LogType::Propose,&smsg);
+                                                let smsg = Vec::from(&NetworkProposal::new(height,round,msg));
+                                                self.wal_save_message(height,LogType::Propose, &smsg);
                                             }
                                             self.follower_proc_proposal(height, round);
                                         }

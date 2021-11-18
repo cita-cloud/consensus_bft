@@ -5,11 +5,11 @@ mod error;
 mod message;
 mod panic_hook;
 mod params;
+mod util;
 mod voteset;
 mod votetime;
 mod wal;
 
-use cita_crypto as crypto;
 use cita_types as types;
 
 use message::{BftSvrMsg, BftToCtlMsg, CtlBackBftMsg};
@@ -17,16 +17,16 @@ use panic_hook::set_panic_handler;
 use tokio::task;
 
 use log::{debug, error, info, warn};
-use std::str::FromStr;
 use tokio::sync::mpsc;
 
 use crate::cita_bft::{Bft, BftChannls};
-use crate::params::{BftParams, PrivateKey};
+use crate::params::BftParams;
 use crate::votetime::WaitTimer;
 use clap::Clap;
 use git_version::git_version;
-use types::{clean_0x, Address};
 
+use crate::config::BftConfig;
+use crate::util::{init_grpc_client, kms_client};
 use cita_cloud_proto::common::{
     ConsensusConfiguration, Empty, Proposal as ProtoProposal, ProposalWithProof, StatusCode,
 };
@@ -38,7 +38,7 @@ use cita_cloud_proto::network::network_msg_handler_service_server::NetworkMsgHan
 use cita_cloud_proto::network::network_msg_handler_service_server::NetworkMsgHandlerServiceServer;
 use cita_cloud_proto::network::network_service_client::NetworkServiceClient;
 use cita_cloud_proto::network::{NetworkMsg, RegisterInfo};
-use status_code;
+use std::time::Duration;
 use tonic::transport::channel::Channel;
 use tonic::{transport::Server, Request};
 
@@ -159,13 +159,8 @@ impl BftToCtl {
 
                     let res = match response {
                         Ok(scode) => {
-                            if status_code::StatusCode::from(scode.code)
+                            status_code::StatusCode::from(scode.code)
                                 == status_code::StatusCode::Success
-                            {
-                                true
-                            } else {
-                                false
-                            }
                         }
                         Err(status) => {
                             warn!("CheckProposalReq failed: {:?}", status);
@@ -338,6 +333,9 @@ struct RunOpts {
     /// Sets grpc port of this service.
     #[clap(short = 'p', long = "port", default_value = "50001")]
     grpc_port: String,
+    /// Chain config path
+    #[clap(short = 'c', long = "config", default_value = "config.toml")]
+    config_path: String,
 }
 
 #[tokio::main]
@@ -345,16 +343,47 @@ async fn run(opts: RunOpts) {
     ::std::env::set_var("RUST_BACKTRACE", "full");
     ::std::env::set_var("DATA_PATH", "./data");
     ::std::env::set_var("WAL_PATH", "./data/wal");
+
+    // read consensus-config.toml
+    let config = BftConfig::new(&opts.config_path);
+
+    // init log4rs
+    log4rs::init_file(&config.log_file, Default::default()).unwrap();
     info!("start consensus bft");
 
-    let buffer = std::fs::read_to_string("consensus-config.toml")
-        .unwrap_or_else(|err| panic!("Error while loading config: [{}]", err));
-    let config = config::BftConfig::new(&buffer);
+    let grpc_port = {
+        if "50001" != opts.grpc_port {
+            opts.grpc_port.clone()
+        } else if config.consensus_port != 50001 {
+            config.consensus_port.to_string()
+        } else {
+            "50001".to_string()
+        }
+    };
+    info!("grpc port of this service: {}", &grpc_port);
 
-    let addr_str = std::fs::read_to_string("node_address")
-        .unwrap_or_else(|err| panic!("Error while loading config: [{}]", err));
-    let sk_str = std::fs::read_to_string("node_key")
-        .unwrap_or_else(|err| panic!("Error while loading config: [{}]", err));
+    init_grpc_client(&config);
+
+    let mut interval = tokio::time::interval(Duration::from_secs(config.server_retry_interval));
+    loop {
+        interval.tick().await;
+        // register endpoint
+        {
+            if let Ok(crypto_info) = kms_client().get_crypto_info(Request::new(Empty {})).await {
+                let inner = crypto_info.into_inner();
+                if inner.status.is_some() {
+                    match status_code::StatusCode::from(inner.status.unwrap()) {
+                        status_code::StatusCode::Success => {
+                            info!("kms({}) is ready!", &inner.name);
+                            break;
+                        }
+                        status => warn!("get get_crypto_info failed: {:?}", status),
+                    }
+                }
+            }
+        }
+        warn!("kms not ready! Retrying");
+    }
 
     let (bft_tx, bft_rx) = mpsc::unbounded_channel();
     let bft_svr = BftSvr::new(bft_tx);
@@ -368,7 +397,7 @@ async fn run(opts: RunOpts) {
     });
 
     let (to_net_tx, to_net_rx) = mpsc::unbounded_channel();
-    let b2n = BftToNet::new(config.network_port, opts.grpc_port.clone(), to_net_rx);
+    let b2n = BftToNet::new(config.network_port, grpc_port.clone(), to_net_rx);
     tokio::spawn(async move {
         BftToNet::run(b2n).await;
     });
@@ -394,20 +423,14 @@ async fn run(opts: RunOpts) {
         timer_back_rx,
     };
 
-    let sk = PrivateKey::new(&sk_str);
-    let bft_params = BftParams::new(&sk);
-
-    let addr = Address::from_str(clean_0x(&addr_str)).unwrap();
-    if bft_params.signer.address != addr {
-        panic!("node address not equal to address form sk");
-    }
+    let bft_params = BftParams::new(&config);
     let mut bft = Bft::new(bft_params, bc);
 
     tokio::spawn(async move {
         bft.start().await;
     });
 
-    let addr_str = format!("127.0.0.1:{}", opts.grpc_port);
+    let addr_str = format!("127.0.0.1:{}", &grpc_port);
     let addr = addr_str.parse().unwrap();
     let _ = Server::builder()
         .add_service(ConsensusServiceServer::new(bft_svr))
@@ -427,7 +450,6 @@ fn main() {
             println!("homepage: {}", GIT_HOMEPAGE);
         }
         SubCommand::Run(opts) => {
-            log4rs::init_file("consensus-log4rs.yaml", Default::default()).unwrap();
             run(opts);
         }
     }

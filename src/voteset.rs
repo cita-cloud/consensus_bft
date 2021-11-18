@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::crypto::{pubkey_to_address, Sign};
 use crate::message::{SignedFollowerVote, Step};
 use crate::types::{Address, H256};
 
 use serde::{Deserialize, Serialize};
 
-use cita_hashable::Hashable;
+use crate::util::recover_sig;
 use log::trace;
 use lru_cache::LruCache;
 use std::collections::BTreeMap;
@@ -161,14 +160,12 @@ impl VoteSet {
         );
         for (sender, sign_vote) in &self.votes_by_sender {
             if authorities.contains(sender) {
-                let msg: Vec<u8> = sign_vote.vote.clone().into();
-                let signature = &sign_vote.sig;
-                if let Ok(pubkey) = signature.recover(&msg.crypt_hash()) {
-                    if pubkey_to_address(&pubkey) == *sender {
-                        let hash = sign_vote.vote.hash.unwrap_or_else(H256::default);
-                        // inc the count of vote for hash
-                        *votes_by_proposal.entry(hash).or_insert(0) += 1;
-                    }
+                let msg = Vec::from(&sign_vote.vote);
+
+                if recover_sig(&sign_vote.sig, &msg).as_slice() == sender.0 {
+                    let hash = sign_vote.vote.hash.unwrap_or_else(H256::default);
+                    // inc the count of vote for hash
+                    *votes_by_proposal.entry(hash).or_insert(0) += 1;
                 }
             }
         }
@@ -189,7 +186,7 @@ impl VoteSet {
 // #[derive(Serialize, Deserialize, Clone, Debug)]
 // pub struct SignedFollowerVote {
 //     pub proposal: Option<H256>,
-//     pub signature: Signature,
+//     pub signature: Vec<u8>,
 // }
 
 #[derive(Debug)]

@@ -1,16 +1,15 @@
-use crate::crypto::Signature;
 use crate::types::H256;
+use crate::util::hash_msg;
 use crate::voteset::Proposal;
 use cita_cloud_proto::common::{ConsensusConfiguration, ProposalWithProof, StatusCode};
-use cita_hashable::Hashable;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 macro_rules! impl_from {
     ($myty : ty) => {
-        impl From<$myty> for Vec<u8> {
-            fn from(v: $myty) -> Self {
-                bincode::serialize(&v).unwrap()
+        impl From<&$myty> for Vec<u8> {
+            fn from(v: &$myty) -> Self {
+                bincode::serialize(v).unwrap()
             }
         }
     };
@@ -46,14 +45,14 @@ pub struct Vote {
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct SignedNetworkProposal {
     pub proposal: NetworkProposal,
-    pub sig: Signature,
+    pub sig: Vec<u8>,
 }
 
 impl SignedNetworkProposal {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn set(&mut self, proposal: NetworkProposal, sig: Signature) {
+    pub fn set(&mut self, proposal: NetworkProposal, sig: Vec<u8>) {
         self.proposal = proposal;
         self.sig = sig;
     }
@@ -69,7 +68,7 @@ pub struct NetworkProposal {
 impl NetworkProposal {
     pub fn new(h: u64, r: u64, raw: Vec<u8>) -> Self {
         let vote_proposal = Proposal {
-            phash: raw.crypt_hash(),
+            phash: hash_msg(&raw),
             lock_round: None,
             lock_votes: None,
         };
@@ -184,7 +183,7 @@ pub struct FollowerVote {
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct SignedFollowerVote {
     pub vote: FollowerVote,
-    pub sig: Signature,
+    pub sig: Vec<u8>,
 }
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct LeaderVote {

@@ -180,9 +180,9 @@ impl AuthorityManage {
             self.authority_h_old = height;
 
             self.authorities.clear();
-            self.authorities.extend_from_slice(&authorities);
+            self.authorities.extend_from_slice(authorities);
             self.validators.clear();
-            self.validators.extend_from_slice(&validators);
+            self.validators.extend_from_slice(validators);
 
             if flag == 2 {
                 self.save();

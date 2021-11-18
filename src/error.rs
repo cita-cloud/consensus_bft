@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::crypto::Signature;
 use crate::types::Address;
 use std::fmt;
 
@@ -24,7 +23,7 @@ pub enum EngineError {
     DoubleVote(Address),
     FutureBlock(u64),
     NotAboveThreshold(usize),
-    BadSignature(Signature),
+    BadSignature(Vec<u8>),
     InvalidProof,
     InvalidTimeInterval,
     /// Message was not expected.
@@ -43,7 +42,7 @@ impl fmt::Display for EngineError {
             NotProposer(ref mis) => format!("Author is not a current proposer: {}", mis),
             NotAuthorized(ref address) => format!("Signer {} is not authorized.", address),
             DoubleVote(ref address) => format!("Author {} issued too many blocks.", address),
-            BadSignature(ref signature) => format!("bad signature {}", signature),
+            BadSignature(ref signature) => format!("bad signature 0x{}", hex::encode(signature)),
             FutureBlock(time) => format!("Block from future: {}", time),
             InvalidTimeInterval => "Invalid Time Interval".into(),
             InvalidProof => "Invalid proof.".into(),

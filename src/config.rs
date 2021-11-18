@@ -12,17 +12,71 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use cloud_util::common::read_toml;
 use serde_derive::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
 pub struct BftConfig {
     pub network_port: u16,
+
+    pub consensus_port: u16,
+
     pub controller_port: u16,
+
+    pub kms_port: u16,
+    /// set whether send no-tx block, default true
+    pub issue_nil_block: bool,
+
+    pub key_id: u64,
+
+    pub node_address: String,
+
+    pub block_interval: u64,
+
+    pub whole_phase: u64,
+
+    pub propose_phase: u64,
+
+    pub prevote_phase: u64,
+
+    pub precommit_phase: u64,
+
+    pub commit_phase: u64,
+
+    pub low_limit_interval: u64,
+
+    pub server_retry_interval: u64,
+
+    pub log_file: String,
+}
+
+impl Default for BftConfig {
+    fn default() -> Self {
+        Self {
+            network_port: 50000,
+            consensus_port: 50001,
+            controller_port: 50004,
+            kms_port: 50005,
+            key_id: 1,
+            issue_nil_block: true,
+            node_address: "".to_string(),
+            block_interval: 3000,
+            whole_phase: 30,
+            propose_phase: 24,
+            prevote_phase: 6,
+            precommit_phase: 6,
+            commit_phase: 4,
+            low_limit_interval: 600,
+            server_retry_interval: 3,
+            log_file: "consensus-log4rs.yaml".to_string(),
+        }
+    }
 }
 
 impl BftConfig {
     pub fn new(config_str: &str) -> Self {
-        toml::from_str::<BftConfig>(config_str).expect("Error while parsing config")
+        read_toml(config_str, "consensus_bft")
     }
 }
 

@@ -23,7 +23,7 @@ use std::{
 };
 
 const DELETE_FILE_INTERVAL: u64 = 8;
-const INDEX_NAME: &'static str = "index";
+const INDEX_NAME: &str = "index";
 
 #[derive(Debug, Clone, Copy)]
 pub enum LogType {
