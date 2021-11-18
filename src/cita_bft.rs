@@ -1544,7 +1544,7 @@ impl Bft {
         match net_msg.r#type.as_str().into() {
             VoteMsgType::Proposal => {
                 let res = self.handle_proposal(&net_msg);
-                warn!("------ net msg Proposal res {:?}", res);
+                info!("------ net msg Proposal res {:?}", res);
                 if let Ok((height, round)) = res {
                     if self.follower_proc_proposal(height, round).is_some() {
                         self.bundle_op_after_proposal(height, round);
@@ -1553,35 +1553,35 @@ impl Bft {
             }
             VoteMsgType::Prevote => {
                 let res = self.leader_handle_message(&net_msg);
-                warn!("------ net msg Prevote res {:?}", res);
+                info!("------ net msg Prevote res {:?}", res);
                 if let Ok((h, r, hash)) = res {
                     self.leader_proc_prevote(h, r, hash);
                 }
             }
             VoteMsgType::Precommit => {
                 let res = self.leader_handle_message(&net_msg);
-                warn!("------ net msg Precommit res {:?}", res);
+                info!("------ net msg Precommit res {:?}", res);
                 if let Ok((h, r, hash)) = res {
                     self.leader_proc_precommit(h, r, hash);
                 }
             }
             VoteMsgType::LeaderPrevote => {
                 let res = self.follower_handle_message(&net_msg);
-                warn!("------ net msg LeaderPrevote res {:?}", res);
+                info!("------ net msg LeaderPrevote res {:?}", res);
                 if let Ok((h, r, hash)) = res {
                     self.follower_proc_prevote(h, r, hash);
                 }
             }
             VoteMsgType::LeaderPrecommit => {
                 let res = self.follower_handle_message(&net_msg);
-                warn!("------ net msg LeaderPrecommit res {:?}", res);
+                info!("------ net msg LeaderPrecommit res {:?}", res);
                 if let Ok((h, r, hash)) = res {
                     self.follower_proc_precommit(h, r, Some(hash));
                 }
             }
             VoteMsgType::NewView => {
                 let res = self.handle_newview(&net_msg);
-                warn!("------ net msg NewView res {:?}", res);
+                info!("------ net msg NewView res {:?}", res);
                 if let Ok((h, r)) = res {
                     self.proc_new_view(h, r);
                 }

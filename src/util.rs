@@ -37,22 +37,26 @@ pub fn kms_client() -> KmsServiceClient<Channel> {
 }
 
 pub fn hash_msg(msg: &[u8]) -> H256 {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async move { H256::from_slice(&hash_data(kms_client(), msg).await.unwrap()) })
+    tokio::task::block_in_place(move || {
+        tokio::runtime::Handle::current()
+            .block_on(async move { H256::from_slice(&hash_data(kms_client(), msg).await.unwrap()) })
+    })
 }
 
 pub fn sign_msg(msg: &[u8], key_id: u64) -> Vec<u8> {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async move {
-        let hash = hash_data(kms_client(), msg).await.unwrap();
-        sign_message(kms_client(), key_id, &hash).await.unwrap()
+    tokio::task::block_in_place(move || {
+        tokio::runtime::Handle::current().block_on(async move {
+            let hash = hash_data(kms_client(), msg).await.unwrap();
+            sign_message(kms_client(), key_id, &hash).await.unwrap()
+        })
     })
 }
 
 pub fn recover_sig(sig: &[u8], msg: &[u8]) -> Vec<u8> {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async move {
-        let hash = hash_data(kms_client(), msg).await.unwrap();
-        recover_signature(kms_client(), sig, &hash).await.unwrap()
+    tokio::task::block_in_place(move || {
+        tokio::runtime::Handle::current().block_on(async move {
+            let hash = hash_data(kms_client(), msg).await.unwrap();
+            recover_signature(kms_client(), sig, &hash).await.unwrap()
+        })
     })
 }
