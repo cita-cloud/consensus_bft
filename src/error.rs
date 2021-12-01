@@ -15,16 +15,12 @@
 use crate::types::Address;
 use std::fmt;
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub enum EngineError {
     NotAuthorized(Address),
     NotProposer(Mismatch<Address>),
     DoubleVote(Address),
-    FutureBlock(u64),
     NotAboveThreshold(usize),
-    BadSignature(Vec<u8>),
-    InvalidProof,
     InvalidTimeInterval,
     /// Message was not expected.
     UnexpectedMessage,
@@ -42,10 +38,7 @@ impl fmt::Display for EngineError {
             NotProposer(ref mis) => format!("Author is not a current proposer: {}", mis),
             NotAuthorized(ref address) => format!("Signer {} is not authorized.", address),
             DoubleVote(ref address) => format!("Author {} issued too many blocks.", address),
-            BadSignature(ref signature) => format!("bad signature 0x{}", hex::encode(signature)),
-            FutureBlock(time) => format!("Block from future: {}", time),
             InvalidTimeInterval => "Invalid Time Interval".into(),
-            InvalidProof => "Invalid proof.".into(),
             NotAboveThreshold(vote) => format!("Vote is not above threshold: {}", vote),
             UnexpectedMessage => "This Engine should not be fed messages.".into(),
             VoteMsgDelay(height, round) => format!(
@@ -53,7 +46,7 @@ impl fmt::Display for EngineError {
                 height, round
             ),
             VoteMsgForth(height, round) => format!(
-                "The vote message is fulture height :{} round: {}",
+                "The vote message is future height :{} round: {}",
                 height, round
             ),
             InvalidSignature => "Invalid Signature.".into(),

@@ -385,8 +385,8 @@ async fn run(opts: RunOpts) {
         warn!("kms not ready! Retrying");
     }
 
-    let (bft_tx, bft_rx) = mpsc::unbounded_channel();
-    let bft_svr = BftSvr::new(bft_tx);
+    let (to_bft_tx, to_bft_rx) = mpsc::unbounded_channel();
+    let bft_svr = BftSvr::new(to_bft_tx);
 
     let (to_ctl_tx, to_ctl_rx) = mpsc::unbounded_channel();
     let (ctl_back_tx, ctl_back_rx) = mpsc::unbounded_channel();
@@ -414,7 +414,7 @@ async fn run(opts: RunOpts) {
     });
 
     let bc = BftChannls {
-        to_bft_rx: bft_rx,
+        to_bft_rx,
         to_ctl_tx,
         ctl_back_rx,
         to_net_tx,

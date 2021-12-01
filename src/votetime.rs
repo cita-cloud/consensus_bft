@@ -59,14 +59,14 @@ impl ::std::fmt::Debug for TimeoutInfo {
 }
 
 pub struct WaitTimer {
-    timer_seter: Receiver<TimeoutInfo>,
+    timer_setter: Receiver<TimeoutInfo>,
     timer_notify: Sender<TimeoutInfo>,
 }
 
 impl WaitTimer {
     pub fn new(timer_seter: Receiver<TimeoutInfo>, timer_notify: Sender<TimeoutInfo>) -> WaitTimer {
         WaitTimer {
-            timer_seter,
+            timer_setter: timer_seter,
             timer_notify,
         }
     }
@@ -88,7 +88,7 @@ impl WaitTimer {
                 Duration::from_secs(100)
             };
 
-            if let Ok(Some(tm)) = tokio::time::timeout(timeout, self.timer_seter.recv()).await {
+            if let Ok(Some(tm)) = tokio::time::timeout(timeout, self.timer_setter.recv()).await {
                 // put the timeval into a timerheap
                 // put the TimeoutInfo into a hashmap, K: timeval  V: TimeoutInfo
                 timer_heap.push(tm);

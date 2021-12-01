@@ -80,6 +80,9 @@ pub struct BftParams {
     pub node_address: Address,
     pub issue_nil_block: bool,
     pub key_id: u64,
+    pub wal_path: String,
+    pub authority_path: String,
+    pub max_proposal_time_coef: u64,
 }
 
 impl BftParams {
@@ -89,6 +92,9 @@ impl BftParams {
             timer: BftTimer::new(config),
             issue_nil_block: config.issue_nil_block,
             key_id: config.key_id,
+            wal_path: config.wal_path.clone(),
+            authority_path: config.authority_path.clone(),
+            max_proposal_time_coef: config.max_proposal_time_coef,
         }
     }
 

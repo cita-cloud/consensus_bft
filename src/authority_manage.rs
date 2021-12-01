@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::params::BftParams;
 use crate::types::Address;
 use bincode::{deserialize, serialize};
 use std::fs::{read_dir, DirBuilder, File, OpenOptions};
@@ -101,7 +102,6 @@ impl Wal {
     }
 }
 
-const DATA_PATH: &str = "DATA_PATH";
 const LOG_TYPE_AUTHORITIES: u8 = 1;
 
 #[derive(Debug)]
@@ -114,17 +114,9 @@ pub struct AuthorityManage {
     pub authority_h_old: usize,
 }
 
-impl Default for AuthorityManage {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl AuthorityManage {
-    pub fn new() -> Self {
-        let logpath = ::std::env::var(DATA_PATH)
-            .unwrap_or_else(|_| panic!("{} must be set", DATA_PATH))
-            + "/authorities";
+    pub fn new(params: &BftParams) -> Self {
+        let logpath = params.authority_path.clone();
 
         let mut authority_manage = AuthorityManage {
             authorities: Vec::new(),

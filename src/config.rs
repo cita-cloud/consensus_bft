@@ -49,6 +49,12 @@ pub struct BftConfig {
     pub server_retry_interval: u64,
 
     pub log_file: String,
+
+    pub wal_path: String,
+
+    pub authority_path: String,
+
+    pub max_proposal_time_coef: u64,
 }
 
 impl Default for BftConfig {
@@ -70,6 +76,9 @@ impl Default for BftConfig {
             low_limit_interval: 600,
             server_retry_interval: 3,
             log_file: "consensus-log4rs.yaml".to_string(),
+            wal_path: "./data/wal".to_string(),
+            authority_path: "./data/authorities".to_string(),
+            max_proposal_time_coef: 8,
         }
     }
 }
