@@ -139,18 +139,15 @@ impl BftToCtl {
 
                     if let Ok(res) = response {
                         if let Some((status, proposal)) = res.status.zip(res.proposal) {
-                            let msg = CtlBackBftMsg::GetProposalRes(
-                                status,
-                                proposal.height,
-                                proposal.data,
-                            );
+                            let msg =
+                                CtlBackBftMsg::GetProposal(status, proposal.height, proposal.data);
                             b2c.back_bft_tx.send(msg).unwrap();
                         }
                     }
                 }
 
                 BftToCtlMsg::CheckProposalReq(height, r, raw) => {
-                    info!("consensus to ctrl, CheckProposalReq h {} r {}", height, r);
+                    info!("consensus to ctrl, CheckProposalReq h: {} r: {}", height, r);
                     let request = tonic::Request::new(ProtoProposal { height, data: raw });
                     let response = client
                         .check_proposal(request)
@@ -167,14 +164,14 @@ impl BftToCtl {
                             false
                         }
                     };
-                    let msg = CtlBackBftMsg::CheckProposalRes(height, r, res);
+                    let msg = CtlBackBftMsg::CheckProposal(height, r, res);
                     b2c.back_bft_tx.send(msg).unwrap();
                 }
 
                 BftToCtlMsg::CommitBlock(pproff) => {
+                    info!("consensus to ctrl : CommitBlock");
                     let mut client = client.clone();
                     let back_bft_tx = b2c.back_bft_tx.clone();
-                    info!("consensus to ctrl : CommitBlock");
                     task::spawn(async move {
                         let request = tonic::Request::new(pproff);
                         let response = client.commit_block(request).await;
@@ -187,7 +184,7 @@ impl BftToCtl {
                                         == status_code::StatusCode::Success
                                     {
                                         back_bft_tx
-                                            .send(CtlBackBftMsg::CommitBlockRes(config))
+                                            .send(CtlBackBftMsg::CommitBlock(config))
                                             .unwrap();
                                     }
                                 }
@@ -292,7 +289,10 @@ impl NetworkMsgHandlerService for NetToBft {
         if msg.module != "consensus" {
             Err(tonic::Status::invalid_argument("wrong module"))
         } else {
-            info!("get netmsg module {:?} type {:?}", msg.module, msg.r#type);
+            debug!(
+                "get network message module {:?} type {:?}",
+                msg.module, msg.r#type
+            );
             self.to_bft_tx.send(msg).unwrap();
             let reply = StatusCode {
                 code: status_code::StatusCode::Success.into(),

@@ -29,29 +29,31 @@ pub enum EngineError {
     InvalidSignature,
     InvalidTxInProposal,
     NoTxInProposal,
+    WaitForCheck,
 }
 
 impl fmt::Display for EngineError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::EngineError::*;
         let msg = match *self {
-            NotProposer(ref mis) => format!("Author is not a current proposer: {}", mis),
-            NotAuthorized(ref address) => format!("Signer {} is not authorized.", address),
-            DoubleVote(ref address) => format!("Author {} issued too many blocks.", address),
+            NotProposer(ref mis) => format!("Author is not a current proposer: {:?}", mis),
+            NotAuthorized(ref address) => format!("Signer {:?} is not authorized.", address),
+            DoubleVote(ref address) => format!("Author {:?} issued too many blocks.", address),
             InvalidTimeInterval => "Invalid Time Interval".into(),
             NotAboveThreshold(vote) => format!("Vote is not above threshold: {}", vote),
             UnexpectedMessage => "This Engine should not be fed messages.".into(),
             VoteMsgDelay(height, round) => format!(
-                "The vote message is delayed height:{},round:{}",
+                "The vote message is delayed height: {},round: {}",
                 height, round
             ),
             VoteMsgForth(height, round) => format!(
-                "The vote message is future height :{} round: {}",
+                "The vote message is future height: {} round: {}",
                 height, round
             ),
             InvalidSignature => "Invalid Signature.".into(),
             InvalidTxInProposal => "Invalid Tx In Proposal.".into(),
             NoTxInProposal => "No tx in proposal.".into(),
+            WaitForCheck => "Controller not yet check the proposal.".into(),
         };
         f.write_fmt(format_args!("Engine error ({})", msg))
     }

@@ -347,7 +347,7 @@ impl Bft {
 
     fn leader_proc_prevote(&mut self, height: u64, round: u64, _hash: Option<H256>) -> bool {
         debug!(
-            "leader_proc_prevote h {} r{} hash {:?}",
+            "leader_proc_prevote h: {} r{} hash {:?}",
             height, round, _hash
         );
 
@@ -644,26 +644,18 @@ impl Bft {
     }
 
     fn check_and_commit_work(&mut self, height: u64, round: u64) -> bool {
-        trace!(
-            "uniform check commit work {} begin h: {}, r: {}, last_commit_round: {:?}",
-            self,
-            height,
-            round,
-            self.last_commit_round
-        );
         if self.height == height && self.round == round {
-            if let Some(cround) = self.last_commit_round {
-                if cround == round && self.proposal.is_some() {
+            if let Some(commit_round) = self.last_commit_round {
+                if commit_round == round && self.proposal.is_some() {
                     return self.commit_block(height, round);
                 }
             }
         }
-        trace!("uniform check and commit_work failed");
+        warn!("uniform check and commit_work failed");
         false
     }
 
-    fn deal_old_height_when_commited(&mut self, height: u64) -> bool {
-        debug!("deal old_height when commited {} h: {} ", self, height);
+    fn deal_old_height_when_committed(&mut self, height: u64) -> bool {
         if self.height <= height {
             self.clean_proposal_locked_info();
             self.clean_filter_info();
@@ -675,6 +667,7 @@ impl Bft {
             self.nil_round = (INIT_ROUND, INIT_ROUND);
             return true;
         }
+        warn!("deal_old_height_when_committed {} h: {} ", self, height);
         false
     }
 
@@ -747,7 +740,10 @@ impl Bft {
     fn pub_follower_message(&mut self, height: u64, round: u64, step: Step, hash: Option<H256>) {
         trace!(
             "Pub follower message {:?} {:?} {:?} {:?}",
-            height, round, step, hash
+            height,
+            round,
+            step,
+            hash
         );
         let (net_msg_type, origin) = {
             match step {
@@ -844,7 +840,7 @@ impl Bft {
         let phash = hash_msg(&pproof.proposal.unwrap().data);
         let leader_vote: LeaderVote = deserialize(&pproof.proof).unwrap_or_default();
         info!(
-            "----- check_proposal_proof phash {:?} h {} round {}",
+            "----- check_proposal_proof phash {:?} h: {} round {}",
             phash, leader_vote.height, leader_vote.round
         );
         if !self.is_above_threshold(leader_vote.votes.len() as u64)
@@ -998,7 +994,7 @@ impl Bft {
                 self.wal_save_message(h, LogType::QuorumVotes, &net_msg.msg);
                 Ok((h, r, hash))
             }
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         }
     }
 
@@ -1034,7 +1030,7 @@ impl Bft {
             if trans_flag {
                 self.send_filter.insert(r, now);
                 self.pub_newview_message(h, r);
-                info!("Pub newview for old round h {} r {}", h, r);
+                info!("Pub newview for old round h: {} r: {}", h, r);
             }
             return Err(EngineError::VoteMsgDelay(h, r));
         }
@@ -1084,7 +1080,7 @@ impl Bft {
         }
 
         info!(
-            "Handle message leader get vote: height {}, round {}, tep {}, sender {:?}, hash {:?}",
+            "Handle message leader get vote: height {}, round {}, step {}, sender {:?}, hash {:?}",
             h, r, fvote.vote.step, sender, fvote.vote.hash,
         );
 
@@ -1113,19 +1109,22 @@ impl Bft {
         }))
     }
 
-    fn follower_proc_proposal(&mut self, height: u64, round: u64) -> Option<bool> {
+    fn follower_proc_proposal(&mut self, height: u64, round: u64) -> bool {
         let proposal = self.proposals.get_proposal(height, round);
         if let Some(proposal) = proposal {
-            info!("proc proposal {} begin h: {}, r: {}", self, height, round);
+            info!(
+                "follower_proc_proposal h: {} r: {} self: {}",
+                height, round, self
+            );
 
             if proposal.is_default() {
-                info!("proc proposal is default empty");
-                return Some(false);
+                warn!("proc proposal is default empty");
+                return false;
             }
 
             if !proposal.check(height, &self.auth_manage.validators) {
                 warn!("Proc proposal check authorities error");
-                return Some(false);
+                return false;
             }
 
             let proposal_lock_round = proposal.lock_round;
@@ -1146,25 +1145,25 @@ impl Bft {
             let res = self.hash_proposals.get_mut(&proposal.phash);
             match res {
                 None => {
-                    return None;
+                    return false;
                 }
                 Some((_, res)) => match res {
                     VerifiedProposalStatus::Err => {
-                        debug!("Proc proposal verified proposal error {:?}", proposal.phash);
-                        return Some(false);
+                        warn!("Proc proposal verified proposal error {:?}", proposal.phash);
+                        return false;
                     }
                     VerifiedProposalStatus::Init => {
                         debug!("Proc proposal verified proposal init {:?}", proposal.phash);
-                        return None;
+                        return false;
                     }
                     _ => {}
                 },
             }
             self.proposal = Some(proposal.phash);
-            return Some(true);
-        } // todo
-        info!("Proc proposal not find proposal h {} r {}", height, round);
-        None
+            return true;
+        }
+        warn!("Proc proposal not find proposal h: {} r: {}", height, round);
+        false
     }
 
     fn send_proposal_verify_req(&self, height: u64, round: u64, raw_proposal: Vec<u8>) {
@@ -1197,18 +1196,21 @@ impl Bft {
     fn handle_proposal(&mut self, net_msg: &NetworkMsg) -> Result<(u64, u64), EngineError> {
         let sign_proposal: SignedNetworkProposal =
             deserialize(&net_msg.msg).map_err(|_| EngineError::UnexpectedMessage)?;
+
         let height = sign_proposal.proposal.height;
         let round = sign_proposal.proposal.round;
 
-        info!("handle_proposal h {} r {}", height, round);
         if self.proposals.get_proposal(height, round).is_some() {
-            trace!("handle_proposal proposal recieved");
-            return Err(EngineError::DoubleVote(Address::zero()));
+            warn!(
+                "handle_proposal proposal h: {} r: {} sender: {:?} already received",
+                height, round, &sign_proposal.sender
+            );
+            return Err(EngineError::DoubleVote(sign_proposal.sender));
         }
 
         info!(
-            "handle proposal {} hash {:?}",
-            self, sign_proposal.proposal.vote_proposal.phash
+            "handle_proposal h: {} r: {} hash {:?}, self: {}",
+            height, round, sign_proposal.proposal.vote_proposal.phash, self
         );
 
         if height < self.height
@@ -1217,12 +1219,6 @@ impl Bft {
         {
             warn!("Handle proposal {} get old proposal", self);
             return Err(EngineError::VoteMsgDelay(height, round));
-        } else if height == self.height && self.step == Step::CommitWait {
-            warn!(
-                "Not handle proposal {} because conensus is ok in height",
-                self
-            );
-            return Err(EngineError::VoteMsgForth(height, round));
         }
 
         let sender = Self::design_message(&sign_proposal.sig, &sign_proposal.proposal);
@@ -1247,14 +1243,6 @@ impl Bft {
             return Err(EngineError::NoTxInProposal);
         }
 
-        trace!(
-            "Handle proposal {} h: {}, r: {}, sender: {:?}",
-            self,
-            height,
-            round,
-            sender
-        );
-
         self.proposals
             .add(height, round, sign_proposal.proposal.vote_proposal.clone());
 
@@ -1270,7 +1258,7 @@ impl Bft {
             let status = match check_res {
                 Some(true) => VerifiedProposalStatus::Ok,
                 Some(false) => VerifiedProposalStatus::Err,
-                _ => {
+                None => {
                     self.send_proposal_verify_req(
                         height,
                         round,
@@ -1286,10 +1274,10 @@ impl Bft {
             );
 
             if height == self.height && self.round == round {
-                if check_res == Some(true) {
-                    return Ok((height, round));
-                } else {
-                    return Err(EngineError::InvalidTxInProposal);
+                match status {
+                    VerifiedProposalStatus::Ok => return Ok((height, round)),
+                    VerifiedProposalStatus::Err => return Err(EngineError::InvalidTxInProposal),
+                    VerifiedProposalStatus::Init => return Err(EngineError::WaitForCheck),
                 }
             }
             return Err(EngineError::VoteMsgForth(height, round));
@@ -1333,7 +1321,7 @@ impl Bft {
                         NetworkProposal::new_with_proposal(self.height, self.round, proposal);
                     cp.set_raw_proposal(raw);
                     let sig = sign_msg(&Vec::from(&cp), self.params.key_id);
-                    sign_prop.set(cp, sig);
+                    sign_prop.set(cp, sig, self.params.node_address);
                     info!("New proposal proposal lock block {:?}", self);
                 } else {
                     warn!("not find proposal raw data");
@@ -1370,7 +1358,7 @@ impl Bft {
             let mut cp = NetworkProposal::new_with_proposal(self.height, self.round, p);
             cp.set_raw_proposal(raw);
             let sig = sign_msg(&Vec::from(&cp), self.params.key_id);
-            sign_prop.set(cp, sig);
+            sign_prop.set(cp, sig, self.params.node_address);
             info!("New proposal proposal {:?}", self);
         }
 
@@ -1405,7 +1393,7 @@ impl Bft {
 
     fn newview_timeout_vote(&mut self, height: u64, round: u64) {
         trace!(
-            "Node_process_timeout vote self {} h {} r {}",
+            "Node_process_timeout vote self {} h: {} r: {}",
             self,
             height,
             round
@@ -1423,7 +1411,7 @@ impl Bft {
     }
 
     fn leader_proc_timeout_vote(&mut self, height: u64, round: u64, step: Step) {
-        trace!("Leader_proc_timeout_vote h {} r {}", height, round);
+        trace!("Leader_proc_timeout_vote h: {} r: {}", height, round);
         if self.check_vote_count(height, round, step) {
             self.pub_leader_message(height, round, step, None);
             self.new_round_start(height, round + 1);
@@ -1494,7 +1482,7 @@ impl Bft {
                 self.do_commit_work(tminfo.height, tminfo.round);
             }
             Step::CommitWait => {
-                if self.deal_old_height_when_commited(tminfo.height) {
+                if self.deal_old_height_when_committed(tminfo.height) {
                     self.new_round_start(tminfo.height + 1, INIT_ROUND);
                 }
             }
@@ -1509,7 +1497,7 @@ impl Bft {
         match net_msg.r#type.as_str().into() {
             VoteMsgType::Proposal => {
                 let (h, r) = self.handle_proposal(&net_msg)?;
-                if self.follower_proc_proposal(h, r).is_some() {
+                if self.follower_proc_proposal(h, r) {
                     self.bundle_op_after_proposal(h, r);
                 }
             }
@@ -1605,11 +1593,11 @@ impl Bft {
             .is_round_leader(height, round, &self.params.node_address)
             .unwrap_or(false)
         {
-            if round != INIT_ROUND && self.leader_new_proposal(true) {
+            if self.leader_new_proposal(true) {
                 step = Step::PrevoteWait;
                 // The code is for only one Node
                 if self.is_only_one_node() {
-                    info!("new round in only one node h {} r {}", height, round);
+                    info!("new round in only one node h: {} r: {}", height, round);
                     self.leader_proc_prevote(height, round, None);
                     if self.leader_proc_precommit(height, round, None) {
                         return;
@@ -1617,7 +1605,7 @@ impl Bft {
                 }
             }
             tv += remaining_time;
-        } else if self.follower_proc_proposal(height, round).is_some() {
+        } else if self.follower_proc_proposal(height, round) {
             self.follower_prevote_send(height, round);
             step = Step::PrevoteWait;
             tv = self.proposal_interval_round_multiple(round);
@@ -1809,12 +1797,12 @@ impl Bft {
         {
             let height = self.height;
             let round = self.round;
-            info!("this h({}) r({}) proposer is me", height, round);
+            info!("the leader is me, h: {} r: {}", height, round);
             self.step = Step::PrevoteWait;
             // The code is for only one Node
             if self.is_only_one_node() {
                 info!(
-                    "after recv proposal,new in one node h {} r {}",
+                    "after recv proposal,new in one node h: {} r: {}",
                     height, round
                 );
                 self.leader_proc_prevote(height, round, None);
@@ -1827,7 +1815,7 @@ impl Bft {
         let now = unix_now();
         let conf_height = config.height;
         info!(
-            "--- now {:?} start time {:?} interval {} commit height {}",
+            "now {:?} start time {:?} interval {} commit height {}",
             now,
             self.start_time,
             self.params.timer.get_total_duration(),
@@ -1846,19 +1834,8 @@ impl Bft {
 
         self.set_config(config);
 
-        if !self
-            .is_round_leader(conf_height + 1, INIT_ROUND, &self.params.node_address)
-            .unwrap_or(false)
-            || self.is_only_one_node()
-        {
-            self.change_state_step(conf_height, self.round, Step::CommitWait);
-            self.set_state_timeout(conf_height, self.round, Step::CommitWait, remaining_time);
-            return;
-        }
-
-        if self.deal_old_height_when_commited(conf_height) {
-            self.new_round_start_with_added_time(conf_height + 1, INIT_ROUND, remaining_time);
-        }
+        self.change_state_step(conf_height, self.round, Step::CommitWait);
+        self.set_state_timeout(conf_height, self.round, Step::CommitWait, remaining_time);
     }
 
     fn bundle_op_after_proposal(&mut self, height: u64, round: u64) {
@@ -1888,12 +1865,6 @@ impl Bft {
 
         if self.is_validator(&self.params.node_address) {
             self.is_consensus_node = true;
-            if self
-                .is_round_leader(config.height + 1, INIT_ROUND, &self.params.node_address)
-                .unwrap_or(false)
-            {
-                self.send_proposal_request();
-            }
         } else {
             self.is_consensus_node = false;
         }
@@ -1932,8 +1903,8 @@ impl Bft {
                 cback = self.bft_channels.ctl_back_rx.recv() => {
                     if let Some(cback) = cback {
                         match cback {
-                            CtlBackBftMsg::GetProposalRes(scode,height,proposal) => {
-                                info!("recv to control back GetProposalRes height {:?}", height);
+                            CtlBackBftMsg::GetProposal(scode,height,proposal) => {
+                                info!("recv controller back GetProposalRes height {:?}", height);
                                 if scode.code == u32::from(status_code::StatusCode::NoneProposal)
                                     && !self.params.issue_nil_block {
                                     self.recv_new_height_proposal(height, Vec::new());
@@ -1942,10 +1913,9 @@ impl Bft {
                                 }
 
                             },
-                            CtlBackBftMsg::CheckProposalRes(height, round, res) => {
-                                trace!(
-                                    "Process {} recieve check proposal  res h: {}, r: {} res {}",
-                                    self,
+                            CtlBackBftMsg::CheckProposal(height, round, res) => {
+                                info!(
+                                    "recv controller back CheckProposalRes h: {}, r: {} res {}",
                                     height,
                                     round,
                                     res,
@@ -1956,11 +1926,11 @@ impl Bft {
 
                                         if !res {
                                             self.proposal = None;
-                                            if let Some(raw) = self.hash_proposals.get_mut(&hash) { raw.1=VerifiedProposalStatus::Err; }
+                                            if let Some(raw) = self.hash_proposals.get_mut(&hash) { raw.1 = VerifiedProposalStatus::Err; }
                                         } else {
                                             let msg: Vec<u8> =
                                                 self.hash_proposals.get_mut(&hash).map(|raw| {
-                                                    raw.1=VerifiedProposalStatus::Ok;
+                                                    raw.1 = VerifiedProposalStatus::Ok;
                                                     raw.0.to_owned()
                                                 }).unwrap_or_default();
 
@@ -1969,16 +1939,17 @@ impl Bft {
                                                 let smsg = Vec::from(&NetworkProposal::new(height,round,msg));
                                                 self.wal_save_message(height,LogType::Propose, &smsg);
                                             }
-                                            self.follower_proc_proposal(height, round);
+                                            if self.follower_proc_proposal(height, round) {
+                                                self.bundle_op_after_proposal(height,round);
+                                            }
                                         }
-                                        self.bundle_op_after_proposal(height,round);
                                     }
                                 }
                             }
-                            CtlBackBftMsg::CommitBlockRes(config) => {
+                            CtlBackBftMsg::CommitBlock(config) => {
                                 // send proposal request too close to leader's send
                                 //self.send_proposal_request();
-                                info!("recv to control back CommitBlockRes {:?}",config);
+                                info!("recv to control back CommitBlockRes({})", config.height);
                                 self.proc_commit_res(config);
                             }
                         }

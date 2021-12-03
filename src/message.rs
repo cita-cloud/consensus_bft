@@ -2,6 +2,7 @@ use crate::types::H256;
 use crate::util::hash_msg;
 use crate::voteset::Proposal;
 use cita_cloud_proto::common::{ConsensusConfiguration, ProposalWithProof, StatusCode};
+use cita_types::Address;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
@@ -28,11 +29,10 @@ pub enum BftToCtlMsg {
 }
 
 #[derive(Debug)]
-#[allow(clippy::enum_variant_names)]
 pub enum CtlBackBftMsg {
-    GetProposalRes(StatusCode, u64, Vec<u8>),
-    CheckProposalRes(u64, u64, bool),
-    CommitBlockRes(ConsensusConfiguration),
+    GetProposal(StatusCode, u64, Vec<u8>),
+    CheckProposal(u64, u64, bool),
+    CommitBlock(ConsensusConfiguration),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Default)]
@@ -46,15 +46,17 @@ pub struct Vote {
 pub struct SignedNetworkProposal {
     pub proposal: NetworkProposal,
     pub sig: Vec<u8>,
+    pub sender: Address,
 }
 
 impl SignedNetworkProposal {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn set(&mut self, proposal: NetworkProposal, sig: Vec<u8>) {
+    pub fn set(&mut self, proposal: NetworkProposal, sig: Vec<u8>, sender: Address) {
         self.proposal = proposal;
         self.sig = sig;
+        self.sender = sender;
     }
 }
 #[derive(Serialize, Deserialize, Clone, Default)]
