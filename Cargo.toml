@@ -1,6 +1,6 @@
 [package]
 name = "consensus"
-version = "6.0.0"
+version = "6.3.0"
 authors = ["Rivtower Technologies <contact@rivtower.com>"]
 license = "Apache-2.0"
 edition = "2018"
@@ -22,7 +22,6 @@ hex = "0.4"
 
 cloud-util = "0.1"
 cita_cloud_proto = "=6.3.0"
-#cita_cloud_proto = { git = "https://github.com/cita-cloud/cita_cloud_proto", branch = "dev-v6.3.0" }
 status_code = { package = "cloud-code", version = "0.1" }
 
 tonic = "0.5"
