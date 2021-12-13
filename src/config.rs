@@ -74,7 +74,7 @@ impl Default for BftConfig {
             precommit_phase: 6,
             commit_phase: 4,
             low_limit_interval: 600,
-            server_retry_interval: 3,
+            server_retry_interval: 2,
             log_file: "consensus-log4rs.yaml".to_string(),
             wal_path: "./data/wal".to_string(),
             authority_path: "./data/authorities".to_string(),

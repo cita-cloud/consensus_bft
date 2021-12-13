@@ -1910,7 +1910,7 @@ impl Bft {
                     if let Some(cback) = cback {
                         match cback {
                             CtlBackBftMsg::GetProposal(scode,height,proposal) => {
-                                info!("recv controller back GetProposalRes height {:?}", height);
+                                info!("recv from controller, GetProposalRes height {:?}", height);
                                 if scode.code == u32::from(status_code::StatusCode::NoneProposal)
                                     && !self.params.issue_nil_block {
                                     self.recv_new_height_proposal(height, Vec::new());
@@ -1921,7 +1921,7 @@ impl Bft {
                             },
                             CtlBackBftMsg::CheckProposal(height, round, res) => {
                                 info!(
-                                    "recv controller back CheckProposalRes h: {}, r: {} res {}",
+                                    "recv from controller, CheckProposalRes h: {}, r: {} res {}",
                                     height,
                                     round,
                                     res,
@@ -1955,7 +1955,7 @@ impl Bft {
                             CtlBackBftMsg::CommitBlock(config) => {
                                 // send proposal request too close to leader's send
                                 //self.send_proposal_request();
-                                info!("recv to control back CommitBlockRes({})", config.height);
+                                info!("recv from control, CommitBlockRes({})", config.height);
                                 self.proc_commit_res(config);
                             }
                         }
