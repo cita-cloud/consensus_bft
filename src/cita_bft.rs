@@ -510,7 +510,7 @@ impl Bft {
     }
 
     fn is_equal_threshold(&self, n: u64) -> bool {
-        self.get_faulty_limit_number() * 2 == n
+        self.auth_manage.validator_n() as u64 - self.get_faulty_limit_number() - 1 == n
     }
 
     fn is_all_vote(&self, n: u64) -> bool {
@@ -1049,11 +1049,17 @@ impl Bft {
                 "Handle message hanle newview: height {}, round {}, sender {:?},",
                 h, r, sender
             );
-            let ret = self.votes.add(sender, &fvote);
-            if ret {
+            if self.votes.add(sender, &fvote) {
                 if h > self.height {
                     return Err(EngineError::VoteMsgForth(h, r));
                 }
+                return Ok((h, r));
+            }
+            if h == self.height && r == self.round {
+                warn!(
+                    "handle_newview: {}, but same bft state",
+                    EngineError::DoubleVote(sender)
+                );
                 return Ok((h, r));
             }
             return Err(EngineError::DoubleVote(sender));
