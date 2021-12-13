@@ -26,6 +26,7 @@ pub struct BftTimer {
     // fraction: (numerator, denominator)
     propose: (u64, u64),
     prevote: (u64, u64),
+    #[allow(dead_code)]
     precommit: (u64, u64),
     commit: (u64, u64),
     low_limit_timeval: u64,

@@ -94,28 +94,17 @@ mod tests {
     use super::BftConfig;
 
     #[test]
-    fn test_read_bft_config() {
-        {
-            let toml_str = r#"
-            network_port = 50000
-            controller_port = 50005
-            "#;
+    fn basic_test() {
+        let config = BftConfig::new("example/config.toml");
 
-            let config = BftConfig::new(toml_str);
-            assert_eq!(config.network_port, 50000);
-            assert_eq!(config.controller_port, 50005);
-        }
-        {
-            // raft-rs treats 0 as invalid id,
-            // but we allow it here, and +1 when pass it to raft.
-            let toml_str = r#"
-            network_port = 50000
-            controller_port = 50005
-            "#;
-
-            let config = BftConfig::new(toml_str);
-            assert_eq!(config.network_port, 50000);
-            assert_eq!(config.controller_port, 50005);
-        }
+        assert_eq!(config.network_port, 50000);
+        assert_eq!(config.consensus_port, 50001);
+        assert_eq!(config.controller_port, 50004);
+        assert_eq!(config.kms_port, 50005);
+        assert_eq!(config.controller_port, 50004);
+        assert_eq!(
+            config.node_address,
+            "0x37d1c7449bfe76fe9c445e626da06265e9377601".to_string()
+        );
     }
 }

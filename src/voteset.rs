@@ -139,7 +139,7 @@ impl VoteSet {
         });
         if added {
             self.count += 1;
-            let hash = sign_vote.vote.hash.unwrap_or_else(H256::default);
+            let hash = sign_vote.vote.hash.unwrap_or_default();
             *self.votes_by_proposal.entry(hash).or_insert(0) += 1;
         }
         added
@@ -163,7 +163,7 @@ impl VoteSet {
                 let msg = Vec::from(&sign_vote.vote);
 
                 if recover_sig(&sign_vote.sig, &msg).as_slice() == sender.0 {
-                    let hash = sign_vote.vote.hash.unwrap_or_else(H256::default);
+                    let hash = sign_vote.vote.hash.unwrap_or_default();
                     // inc the count of vote for hash
                     *votes_by_proposal.entry(hash).or_insert(0) += 1;
                 }
