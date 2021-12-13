@@ -89,6 +89,7 @@ impl ConsensusService for BftSvr {
 struct BftToCtl {
     //ctr_client: ControllerClient,
     ctr_port: u16,
+    connect_interval: u64,
     to_ctl_rx: mpsc::UnboundedReceiver<BftToCtlMsg>,
     back_bft_tx: mpsc::UnboundedSender<CtlBackBftMsg>,
 }
@@ -96,19 +97,22 @@ struct BftToCtl {
 impl BftToCtl {
     pub fn new(
         ctr_port: u16,
+        connect_interval: u64,
         to_ctl_rx: mpsc::UnboundedReceiver<BftToCtlMsg>,
         back_bft_tx: mpsc::UnboundedSender<CtlBackBftMsg>,
     ) -> Self {
         Self {
             ctr_port,
+            connect_interval,
             to_ctl_rx,
             back_bft_tx,
         }
     }
 
-    async fn reconnect(ctr_port: u16) -> ControllerClient {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
-        let ctl_addr = format!("http://127.0.0.1:{}", ctr_port);
+    async fn reconnect(&self) -> ControllerClient {
+        let mut interval =
+            tokio::time::interval(std::time::Duration::from_secs(self.connect_interval));
+        let ctl_addr = format!("http://127.0.0.1:{}", self.ctr_port);
         info!("connecting to controller...");
         let client = loop {
             interval.tick().await;
@@ -125,12 +129,12 @@ impl BftToCtl {
     }
 
     // Connect to the controller. Retry on failure.
-    async fn run(mut b2c: BftToCtl) {
-        let mut client = Self::reconnect(b2c.ctr_port).await;
-        while let Some(to_msg) = b2c.to_ctl_rx.recv().await {
+    async fn run(mut self) {
+        let mut client = self.reconnect().await;
+        while let Some(to_msg) = self.to_ctl_rx.recv().await {
             match to_msg {
                 BftToCtlMsg::GetProposalReq => {
-                    info!("consensus to ctrl : GetProposalReq ");
+                    info!("consensus to controller : GetProposalReq ");
                     let request = tonic::Request::new(Empty {});
                     let response = client
                         .get_proposal(request)
@@ -141,13 +145,16 @@ impl BftToCtl {
                         if let Some((status, proposal)) = res.status.zip(res.proposal) {
                             let msg =
                                 CtlBackBftMsg::GetProposal(status, proposal.height, proposal.data);
-                            b2c.back_bft_tx.send(msg).unwrap();
+                            self.back_bft_tx.send(msg).unwrap();
                         }
                     }
                 }
 
                 BftToCtlMsg::CheckProposalReq(height, r, raw) => {
-                    info!("consensus to ctrl, CheckProposalReq h: {} r: {}", height, r);
+                    info!(
+                        "consensus to controller, CheckProposalReq h: {} r: {}",
+                        height, r
+                    );
                     let request = tonic::Request::new(ProtoProposal { height, data: raw });
                     let response = client
                         .check_proposal(request)
@@ -165,13 +172,13 @@ impl BftToCtl {
                         }
                     };
                     let msg = CtlBackBftMsg::CheckProposal(height, r, res);
-                    b2c.back_bft_tx.send(msg).unwrap();
+                    self.back_bft_tx.send(msg).unwrap();
                 }
 
                 BftToCtlMsg::CommitBlock(pproff) => {
-                    info!("consensus to ctrl : CommitBlock");
+                    info!("consensus to controller : CommitBlock");
                     let mut client = client.clone();
-                    let back_bft_tx = b2c.back_bft_tx.clone();
+                    let back_bft_tx = self.back_bft_tx.clone();
                     task::spawn(async move {
                         let request = tonic::Request::new(pproff);
                         let response = client.commit_block(request).await;
@@ -201,6 +208,7 @@ impl BftToCtl {
 
 struct BftToNet {
     net_port: u16,
+    connect_interval: u64,
     self_port: String,
     to_net_rx: mpsc::UnboundedReceiver<NetworkMsg>,
 }
@@ -208,19 +216,22 @@ struct BftToNet {
 impl BftToNet {
     pub fn new(
         net_port: u16,
+        connect_interval: u64,
         self_port: String,
         to_net_rx: mpsc::UnboundedReceiver<NetworkMsg>,
     ) -> Self {
         BftToNet {
             net_port,
+            connect_interval,
             self_port,
             to_net_rx,
         }
     }
 
-    async fn reconnect(net_port: u16) -> NetworkClient {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
-        let net_addr = format!("http://127.0.0.1:{}", net_port);
+    async fn reconnect(&self) -> NetworkClient {
+        let mut interval =
+            tokio::time::interval(std::time::Duration::from_secs(self.connect_interval));
+        let net_addr = format!("http://127.0.0.1:{}", self.net_port);
         info!("connecting to network...");
         let client = loop {
             interval.tick().await;
@@ -235,14 +246,14 @@ impl BftToNet {
         client
     }
 
-    async fn run(mut b2n: BftToNet) {
-        let mut client = Self::reconnect(b2n.net_port).await;
+    async fn run(mut self) {
+        let mut client = self.reconnect().await;
         info!("connecting to network success");
         loop {
             let request = Request::new(RegisterInfo {
                 module_name: "consensus".to_owned(),
                 hostname: "127.0.0.1".to_owned(),
-                port: b2n.self_port.clone(),
+                port: self.self_port.clone(),
             });
 
             let response = client.register_network_msg_handler(request).await.unwrap();
@@ -251,7 +262,7 @@ impl BftToNet {
             }
         }
 
-        while let Some(msg) = b2n.to_net_rx.recv().await {
+        while let Some(msg) = self.to_net_rx.recv().await {
             let origin = msg.origin;
             let request = tonic::Request::new(msg);
             if origin == 0 {
@@ -390,16 +401,26 @@ async fn run(opts: RunOpts) {
 
     let (to_ctl_tx, to_ctl_rx) = mpsc::unbounded_channel();
     let (ctl_back_tx, ctl_back_rx) = mpsc::unbounded_channel();
-    let b2c = BftToCtl::new(config.controller_port, to_ctl_rx, ctl_back_tx);
+    let b2c = BftToCtl::new(
+        config.controller_port,
+        config.server_retry_interval,
+        to_ctl_rx,
+        ctl_back_tx,
+    );
 
     tokio::spawn(async move {
-        BftToCtl::run(b2c).await;
+        b2c.run().await;
     });
 
     let (to_net_tx, to_net_rx) = mpsc::unbounded_channel();
-    let b2n = BftToNet::new(config.network_port, grpc_port.clone(), to_net_rx);
+    let b2n = BftToNet::new(
+        config.network_port,
+        config.server_retry_interval,
+        grpc_port.clone(),
+        to_net_rx,
+    );
     tokio::spawn(async move {
-        BftToNet::run(b2n).await;
+        b2n.run().await;
     });
 
     let (net_back_tx, net_back_rx) = mpsc::unbounded_channel();
@@ -432,6 +453,7 @@ async fn run(opts: RunOpts) {
 
     let addr_str = format!("127.0.0.1:{}", &grpc_port);
     let addr = addr_str.parse().unwrap();
+
     let _ = Server::builder()
         .add_service(ConsensusServiceServer::new(bft_svr))
         .add_service(NetworkMsgHandlerServiceServer::new(n2b))

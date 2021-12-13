@@ -25,7 +25,6 @@ use std::str;
 #[derive(Debug)]
 pub(crate) struct Wal {
     fs: File,
-    dir: String,
 }
 
 impl Wal {
@@ -42,10 +41,7 @@ impl Wal {
             .create(true)
             .write(true)
             .open(big_path)?;
-        Ok(Wal {
-            fs,
-            dir: dir.to_string(),
-        })
+        Ok(Wal { fs })
     }
 
     pub(crate) fn save(&mut self, mtype: u8, msg: &[u8]) -> io::Result<usize> {
