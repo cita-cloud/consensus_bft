@@ -437,7 +437,7 @@ impl Bft {
         false
     }
 
-    fn leader_proc_precommit(&mut self, height: u64, round: u64, _vote_hash: Option<H256>) -> bool {
+    fn leader_proc_precommit(&mut self, height: u64, round: u64) -> bool {
         debug!(
             "leader proc precommit {} begin h: {}, r: {}",
             self, height, round
@@ -446,15 +446,14 @@ impl Bft {
             return false;
         }
 
-        let vote_set = self.votes.get_voteset(height, round, Step::Precommit);
-        trace!(
-            "leader proc precommit {} deal h: {}, r: {}, vote_set: {:?}",
-            self,
-            height,
-            round,
-            vote_set
-        );
-        if let Some(vote_set) = vote_set {
+        if let Some(vote_set) = self.votes.get_voteset(height, round, Step::Precommit) {
+            trace!(
+                "leader proc precommit {} deal h: {}, r: {}, vote_set: {:?}",
+                self,
+                height,
+                round,
+                vote_set
+            );
             if self.is_above_threshold(vote_set.count) {
                 trace!(
                     "leader proc precommit {} is_above_threshold h: {}, r: {}",
@@ -932,7 +931,7 @@ impl Bft {
         let r = lvote.round;
         let s = lvote.step;
 
-        if h < self.height || (h == self.height && r < self.round) {
+        if h < self.height || (h == self.height && r < self.round && s != Step::Precommit) {
             return Err(EngineError::VoteMsgDelay(h, r));
         }
 
@@ -1006,11 +1005,22 @@ impl Bft {
         let r = fvote.vote.round;
 
         if h < self.height {
+            // republic old height commit
+            if h + 1 == self.height && r > 0 {
+                warn!("receive unreachable new_view msg");
+                if let Some(vote_set) = self.votes.get_voteset(h, r - 1, Step::Precommit) {
+                    if self.is_above_threshold(vote_set.count) {
+                        for (hash, count) in &vote_set.votes_by_proposal {
+                            if self.is_above_threshold(*count) {
+                                warn!("handle unreachable new_view msg, resend committed proposal");
+                                self.pub_leader_message(h, r - 1, Step::Precommit, Some(*hash));
+                            }
+                        }
+                    }
+                }
+            }
             return Err(EngineError::VoteMsgDelay(h, r));
         }
-        // if h > self.height {
-        //     self.send_proposal_request();
-        // }
 
         //deal with equal height,and round fall behind
         if h == self.height && r < self.round {
@@ -1512,8 +1522,8 @@ impl Bft {
                 self.leader_proc_prevote(h, r, hash);
             }
             VoteMsgType::Precommit => {
-                let (h, r, hash) = self.leader_handle_message(&net_msg)?;
-                self.leader_proc_precommit(h, r, hash);
+                let (h, r, _) = self.leader_handle_message(&net_msg)?;
+                self.leader_proc_precommit(h, r);
             }
             VoteMsgType::LeaderPrevote => {
                 let (h, r, hash) = self.follower_handle_message(&net_msg)?;
@@ -1605,7 +1615,7 @@ impl Bft {
                 if self.is_only_one_node() {
                     info!("new round in only one node h: {} r: {}", height, round);
                     self.leader_proc_prevote(height, round, None);
-                    if self.leader_proc_precommit(height, round, None) {
+                    if self.leader_proc_precommit(height, round) {
                         return;
                     }
                 }
@@ -1669,7 +1679,7 @@ impl Bft {
                                 self.proposal,
                             );
                         }
-                        self.leader_proc_precommit(height, round, None);
+                        self.leader_proc_precommit(height, round);
                     } else {
                         self.pre_proc_precommit();
                         if let Some(hash) = self.check_saved_vote(height, round, Step::Precommit) {
@@ -1747,7 +1757,7 @@ impl Bft {
                             if s == Step::Prevote {
                                 self.leader_proc_prevote(h, r, Some(hash));
                             } else {
-                                self.leader_proc_precommit(h, r, Some(hash));
+                                self.leader_proc_precommit(h, r);
                             }
                         } else if s == Step::Prevote {
                             self.follower_proc_prevote(h, r, hash);
@@ -1812,7 +1822,7 @@ impl Bft {
                     height, round
                 );
                 self.leader_proc_prevote(height, round, None);
-                self.leader_proc_precommit(height, round, None);
+                self.leader_proc_precommit(height, round);
             }
         }
     }
@@ -1828,7 +1838,7 @@ impl Bft {
             conf_height
         );
 
-        // Not return,obey the config
+        // Not return, obey the config
         if conf_height < self.height {
             self.wal_log.borrow_mut().clear_file().unwrap();
         }
