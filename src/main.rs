@@ -8,7 +8,6 @@ mod params;
 mod util;
 mod voteset;
 mod votetime;
-mod wal;
 
 use cita_types as types;
 
