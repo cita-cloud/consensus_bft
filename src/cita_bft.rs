@@ -22,12 +22,12 @@ use crate::params::BftParams;
 use crate::types::{Address, H256};
 use crate::voteset::{Proposal, ProposalCollector, VoteCollector, VoteSet};
 use crate::votetime::TimeoutInfo;
-use crate::wal::{LogType, Wal};
 use bincode::deserialize;
 use cita_cloud_proto::common::{
     ConsensusConfiguration, Proposal as ProtoProposal, ProposalWithProof,
 };
 use cita_cloud_proto::network::NetworkMsg;
+use cloud_util::wal::{LogType, Wal};
 use log::{debug, error, info, trace, warn};
 
 use crate::util::{hash_msg, recover_sig, sign_msg};
@@ -1766,6 +1766,7 @@ impl Bft {
                         }
                     }
                 }
+                _ => continue,
             }
         }
         info!("load_wal_log ends");
