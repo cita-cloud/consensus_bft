@@ -340,12 +340,12 @@ enum SubCommand {
 /// A subcommand for run
 #[derive(Parser)]
 struct RunOpts {
-    /// Sets grpc port of this service.
-    #[clap(short = 'p', long = "port", default_value = "50001")]
-    grpc_port: String,
     /// Chain config path
     #[clap(short = 'c', long = "config", default_value = "config.toml")]
     config_path: String,
+    /// log config path
+    #[clap(short = 'l', long = "log", default_value = "consensus-log4rs.yaml")]
+    log_file: String,
 }
 
 #[tokio::main]
@@ -358,18 +358,12 @@ async fn run(opts: RunOpts) {
     let config = BftConfig::new(&opts.config_path);
 
     // init log4rs
-    log4rs::init_file(&config.log_file, Default::default()).unwrap();
+    log4rs::init_file(&opts.log_file, Default::default())
+        .map_err(|e| println!("log init err: {}", e))
+        .unwrap();
     info!("start consensus bft");
 
-    let grpc_port = {
-        if "50001" != opts.grpc_port {
-            opts.grpc_port.clone()
-        } else if config.consensus_port != 50001 {
-            config.consensus_port.to_string()
-        } else {
-            "50001".to_string()
-        }
-    };
+    let grpc_port = config.consensus_port.to_string();
     info!("grpc port of this service: {}", &grpc_port);
 
     init_grpc_client(&config);
