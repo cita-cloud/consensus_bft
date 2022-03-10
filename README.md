@@ -1,7 +1,85 @@
 # consensus_bft
-This consensus protocol more like Tendermint. But cancel commit phase and use leader collect vote to reduce complexity of network
+类似Tendermint的共识协议，取消`commit`阶段并使用`leader`归票降低网络通信复杂度
 
-## State Change
+## 编译docker镜像
+```
+docker build -t citacloud/consensus_bft .   
+```
+
+## 使用方法
+
+```
+$ consensus -h       
+consensus 0.1.0
+Rivtower Technologies.
+This doc string acts as a help message when the user runs '--help' as do all doc strings on fields
+
+USAGE:
+    consensus <SUBCOMMAND>
+
+OPTIONS:
+    -h, --help       Print help information
+    -V, --version    Print version information
+
+SUBCOMMANDS:
+    git     print information from git
+    help    Print this message or the help of the given subcommand(s)
+    run     run this service
+```
+
+### consensus-git
+
+打印`git`相关的信息。
+```
+$ consensus git
+git version: 703ec11-modified
+homepage: https://github.com/cita-cloud/consensus_bft
+
+```
+
+### consensus-run
+
+运行`consensus`服务。
+
+```
+$ consensus run -h
+consensus-run 
+run this service
+
+USAGE:
+    consensus run [OPTIONS]
+
+OPTIONS:
+    -c, --config <CONFIG_PATH>    Chain config path [default: config.toml]
+    -h, --help                    Print help information
+    -l, --log <LOG_FILE>          log config path [default: consensus-log4rs.yaml]
+
+```
+
+参数：
+1. 微服务配置文件。
+
+   参见示例`example/config.toml`。
+
+   其中：
+    * `consensus_port` 为该服务监听的端口号。
+2. 日志配置文件。
+
+   参见示例`consensus-log4rs.yaml`。
+
+   其中：
+
+    * `level` 为日志等级。可选项有：`Error`，`Warn`，`Info`，`Debug`，`Trace`，默认为`Info`。
+    * `appenders` 为输出选项，类型为一个数组。可选项有：标准输出(`stdout`)和滚动的日志文件（`journey-service`），默认为同时输出到两个地方。
+
+```
+$ consensus run -c example/config.toml -l consensus-log4rs.yaml
+2022-03-10T10:04:09.850581+08:00 INFO consensus - start consensus bft
+2022-03-10T10:04:09.851129+08:00 INFO consensus - grpc port of this service: 50001
+```
+
+
+## 状态转换
 ### Leader
 ![start](img/leader.png)
 
