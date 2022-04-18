@@ -2,6 +2,7 @@ mod authority_manage;
 mod cita_bft;
 mod config;
 mod error;
+mod health_check;
 mod message;
 mod panic_hook;
 mod params;
@@ -25,6 +26,7 @@ use clap::Parser;
 use git_version::git_version;
 
 use crate::config::BftConfig;
+use crate::health_check::HealthCheckServer;
 use crate::util::{init_grpc_client, kms_client};
 use cita_cloud_proto::common::{
     ConsensusConfiguration, Empty, Proposal as ProtoProposal, ProposalWithProof, StatusCode,
@@ -33,6 +35,7 @@ use cita_cloud_proto::consensus::consensus_service_server::{
     ConsensusService, ConsensusServiceServer,
 };
 use cita_cloud_proto::controller::consensus2_controller_service_client::Consensus2ControllerServiceClient;
+use cita_cloud_proto::health_check::health_server::HealthServer;
 use cita_cloud_proto::network::network_msg_handler_service_server::NetworkMsgHandlerService;
 use cita_cloud_proto::network::network_msg_handler_service_server::NetworkMsgHandlerServiceServer;
 use cita_cloud_proto::network::network_service_client::NetworkServiceClient;
@@ -450,6 +453,7 @@ async fn run(opts: RunOpts) {
     let _ = Server::builder()
         .add_service(ConsensusServiceServer::new(bft_svr))
         .add_service(NetworkMsgHandlerServiceServer::new(n2b))
+        .add_service(HealthServer::new(HealthCheckServer {}))
         .serve(addr)
         .await;
 }
