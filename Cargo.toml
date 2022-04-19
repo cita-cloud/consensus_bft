@@ -1,9 +1,9 @@
 [package]
 name = "consensus"
-version = "6.3.2"
+version = "6.4.0"
 authors = ["Rivtower Technologies <contact@rivtower.com>"]
 license = "Apache-2.0"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 dotenv = "0.15"
@@ -35,9 +35,6 @@ git-version = "0.3"
 backtrace = "0.3"
 arrayref = "0.3"
 async-recursion = "0.3.2"
-
-[patch."https://github.com/cita-cloud/cita_cloud_proto"]
-cita_cloud_proto = { git = "https://github.com/rink1969/cita_cloud_proto.git", branch = "health_check" }
 
 [profile.release.package."*"]
 # Set the default for dependencies.
