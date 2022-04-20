@@ -23,7 +23,6 @@ use crate::cita_bft::{Bft, BftChannls};
 use crate::params::BftParams;
 use crate::votetime::WaitTimer;
 use clap::Parser;
-use git_version::git_version;
 
 use crate::config::BftConfig;
 use crate::health_check::HealthCheckServer;
@@ -315,16 +314,10 @@ impl NetworkMsgHandlerService for NetToBft {
     }
 }
 
-const GIT_VERSION: &str = git_version!(
-    args = ["--tags", "--always", "--dirty=-modified"],
-    fallback = "unknown"
-);
-const GIT_HOMEPAGE: &str = "https://github.com/cita-cloud/consensus_bft";
-
 /// This doc string acts as a help message when the user runs '--help'
 /// as do all doc strings on fields
 #[derive(Parser)]
-#[clap(version = "0.1.0", author = "Rivtower Technologies.")]
+#[clap(version, author)]
 struct Opts {
     #[clap(subcommand)]
     subcmd: SubCommand,
@@ -332,9 +325,6 @@ struct Opts {
 
 #[derive(Parser)]
 enum SubCommand {
-    /// print information from git
-    #[clap(name = "git")]
-    GitInfo,
     /// run this service
     #[clap(name = "run")]
     Run(RunOpts),
@@ -464,10 +454,6 @@ fn main() {
     // You can handle information about subcommands by requesting their matches by name
     // (as below), requesting just the name used, or both at the same time
     match opts.subcmd {
-        SubCommand::GitInfo => {
-            println!("git version: {}", GIT_VERSION);
-            println!("homepage: {}", GIT_HOMEPAGE);
-        }
         SubCommand::Run(opts) => {
             run(opts);
         }

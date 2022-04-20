@@ -10,8 +10,8 @@ docker build -t citacloud/consensus_bft .
 
 ```
 $ consensus -h       
-consensus 0.1.0
-Rivtower Technologies.
+consensus 6.4.0
+Rivtower Technologies <contact@rivtower.com>
 This doc string acts as a help message when the user runs '--help' as do all doc strings on fields
 
 USAGE:
@@ -22,19 +22,8 @@ OPTIONS:
     -V, --version    Print version information
 
 SUBCOMMANDS:
-    git     print information from git
     help    Print this message or the help of the given subcommand(s)
     run     run this service
-```
-
-### consensus-git
-
-打印`git`相关的信息。
-```
-$ consensus git
-git version: 703ec11-modified
-homepage: https://github.com/cita-cloud/consensus_bft
-
 ```
 
 ### consensus-run
