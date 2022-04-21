@@ -1,16 +1,16 @@
-FROM rust:slim-buster AS buildstage
+FROM rust:slim-bullseye AS buildstage
 WORKDIR /build
 COPY . /build/
 RUN /bin/sh -c set -eux;\
     rustup component add rustfmt;\
     apt-get update;\
-    apt-get install -y --no-install-recommends make git wget protobuf-compiler libssl-dev pkg-config clang libsnappy-dev;\
+    apt-get install -y --no-install-recommends wget;\
     rm -rf /var/lib/apt/lists/*;\
     GRPC_HEALTH_PROBE_VERSION=v0.4.10;\
     wget -qO /bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-amd64;\
     chmod +x /bin/grpc_health_probe;
 RUN cargo build --release
-FROM debian:buster-slim
+FROM debian:bullseye-slim
 COPY --from=buildstage /build/target/release/consensus /usr/bin/
 COPY --from=buildstage /bin/grpc_health_probe /usr/bin/
 CMD ["consensus"]
