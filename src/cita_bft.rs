@@ -696,20 +696,24 @@ impl Bft {
             if let Some((raw_proposal, _)) = res {
                 let proof = self.generate_proof(height, commit_round, hash);
                 if let Some(proof) = proof {
-                    let pproof = ProposalWithProof {
-                        proposal: Some(ProtoProposal {
-                            height,
-                            data: raw_proposal,
-                        }),
-                        proof,
-                    };
-                    self.bft_channels
-                        .to_ctl_tx
-                        .send(BftToCtlMsg::CommitBlock(pproof))
-                        .unwrap();
+                    if hash == hash_msg(&raw_proposal) {
+                        let pproof = ProposalWithProof {
+                            proposal: Some(ProtoProposal {
+                                height,
+                                data: raw_proposal,
+                            }),
+                            proof,
+                        };
+                        self.bft_channels
+                            .to_ctl_tx
+                            .send(BftToCtlMsg::CommitBlock(pproof))
+                            .unwrap();
 
-                    //self.send_proposal_request();
-                    return true;
+                        //self.send_proposal_request();
+                        return true;
+                    } else {
+                        error!("proof is inconsistent with proposal!");
+                    }
                 }
             }
         }
