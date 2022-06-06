@@ -13,41 +13,42 @@
 // limitations under the License.
 
 use crate::config::BftConfig;
-use cita_cloud_proto::kms::kms_service_client::KmsServiceClient;
+use cita_cloud_proto::crypto::crypto_service_client::CryptoServiceClient;
 use cita_types::H256;
 use cloud_util::crypto::{hash_data, recover_signature, sign_message};
 use tokio::sync::OnceCell;
 use tonic::transport::{Channel, Endpoint};
 
-pub static KMS_CLIENT: OnceCell<KmsServiceClient<Channel>> = OnceCell::const_new();
+pub static CRYPTO_CLIENT: OnceCell<CryptoServiceClient<Channel>> = OnceCell::const_new();
 
 // This must be called before access to clients.
 pub fn init_grpc_client(config: &BftConfig) {
-    KMS_CLIENT
+    CRYPTO_CLIENT
         .set({
-            let addr = format!("http://127.0.0.1:{}", config.kms_port);
+            let addr = format!("http://127.0.0.1:{}", config.crypto_port);
             let channel = Endpoint::from_shared(addr).unwrap().connect_lazy().unwrap();
-            KmsServiceClient::new(channel)
+            CryptoServiceClient::new(channel)
         })
         .unwrap();
 }
 
-pub fn kms_client() -> KmsServiceClient<Channel> {
-    KMS_CLIENT.get().cloned().unwrap()
+pub fn crypto_client() -> CryptoServiceClient<Channel> {
+    CRYPTO_CLIENT.get().cloned().unwrap()
 }
 
 pub fn hash_msg(msg: &[u8]) -> H256 {
     tokio::task::block_in_place(move || {
-        tokio::runtime::Handle::current()
-            .block_on(async move { H256::from_slice(&hash_data(kms_client(), msg).await.unwrap()) })
+        tokio::runtime::Handle::current().block_on(async move {
+            H256::from_slice(&hash_data(crypto_client(), msg).await.unwrap())
+        })
     })
 }
 
-pub fn sign_msg(msg: &[u8], key_id: u64) -> Vec<u8> {
+pub fn sign_msg(msg: &[u8]) -> Vec<u8> {
     tokio::task::block_in_place(move || {
         tokio::runtime::Handle::current().block_on(async move {
-            let hash = hash_data(kms_client(), msg).await.unwrap();
-            sign_message(kms_client(), key_id, &hash).await.unwrap()
+            let hash = hash_data(crypto_client(), msg).await.unwrap();
+            sign_message(crypto_client(), &hash).await.unwrap()
         })
     })
 }
@@ -55,8 +56,10 @@ pub fn sign_msg(msg: &[u8], key_id: u64) -> Vec<u8> {
 pub fn recover_sig(sig: &[u8], msg: &[u8]) -> Vec<u8> {
     tokio::task::block_in_place(move || {
         tokio::runtime::Handle::current().block_on(async move {
-            let hash = hash_data(kms_client(), msg).await.unwrap();
-            recover_signature(kms_client(), sig, &hash).await.unwrap()
+            let hash = hash_data(crypto_client(), msg).await.unwrap();
+            recover_signature(crypto_client(), sig, &hash)
+                .await
+                .unwrap()
         })
     })
 }

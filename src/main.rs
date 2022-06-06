@@ -26,7 +26,7 @@ use clap::Parser;
 
 use crate::config::BftConfig;
 use crate::health_check::HealthCheckServer;
-use crate::util::{init_grpc_client, kms_client};
+use crate::util::{crypto_client, init_grpc_client};
 use cita_cloud_proto::common::{
     ConsensusConfiguration, Empty, Proposal as ProtoProposal, ProposalWithProof, StatusCode,
 };
@@ -366,12 +366,15 @@ async fn run(opts: RunOpts) {
         interval.tick().await;
         // register endpoint
         {
-            if let Ok(crypto_info) = kms_client().get_crypto_info(Request::new(Empty {})).await {
+            if let Ok(crypto_info) = crypto_client()
+                .get_crypto_info(Request::new(Empty {}))
+                .await
+            {
                 let inner = crypto_info.into_inner();
                 if inner.status.is_some() {
                     match status_code::StatusCode::from(inner.status.unwrap()) {
                         status_code::StatusCode::Success => {
-                            info!("kms({}) is ready!", &inner.name);
+                            info!("crypto({}) is ready!", &inner.name);
                             break;
                         }
                         status => warn!("get get_crypto_info failed: {:?}", status),
@@ -379,7 +382,7 @@ async fn run(opts: RunOpts) {
                 }
             }
         }
-        warn!("kms not ready! Retrying");
+        warn!("crypto not ready! Retrying");
     }
 
     let (to_bft_tx, to_bft_rx) = mpsc::unbounded_channel();

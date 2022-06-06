@@ -24,11 +24,9 @@ pub struct BftConfig {
 
     pub controller_port: u16,
 
-    pub kms_port: u16,
+    pub crypto_port: u16,
     /// set whether send no-tx block, default true
     pub issue_nil_block: bool,
-
-    pub key_id: u64,
 
     pub node_address: String,
 
@@ -61,8 +59,7 @@ impl Default for BftConfig {
             network_port: 50000,
             consensus_port: 50001,
             controller_port: 50004,
-            kms_port: 50005,
-            key_id: 1,
+            crypto_port: 50005,
             issue_nil_block: true,
             node_address: "".to_string(),
             block_interval: 3000,
@@ -97,7 +94,7 @@ mod tests {
         assert_eq!(config.network_port, 50000);
         assert_eq!(config.consensus_port, 50001);
         assert_eq!(config.controller_port, 50004);
-        assert_eq!(config.kms_port, 50005);
+        assert_eq!(config.crypto_port, 50005);
         assert_eq!(config.controller_port, 50004);
         assert_eq!(
             config.node_address,
