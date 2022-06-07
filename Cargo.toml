@@ -18,9 +18,9 @@ lru-cache = "0.1"
 min-max-heap = "1.2"
 hex = "0.4"
 
-cloud-util = { git = "https://github.com/cita-cloud/cloud-util.git" }
-cita_cloud_proto = { git = "https://github.com/cita-cloud/cita_cloud_proto.git" }
-status_code = { package = "cloud-code", git = "https://github.com/cita-cloud/status_code.git" }
+cloud-util = "0.2.0"
+cita_cloud_proto = "6.4.0"
+status_code = { package = "cloud-code", version = "0.2.1" }
 
 tonic = "0.5"
 prost = "0.8"
