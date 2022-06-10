@@ -776,7 +776,7 @@ impl Bft {
             hash,
         };
 
-        let sig = sign_msg(&Vec::from(&vote), self.params.key_id);
+        let sig = sign_msg(&Vec::from(&vote));
         let sv = SignedFollowerVote { vote, sig };
         self.send_raw_net_msg(net_msg_type.into(), origin, &sv);
     }
@@ -895,7 +895,7 @@ impl Bft {
             step,
             hash,
         };
-        let sig = sign_msg(&Vec::from(&vote), self.params.key_id);
+        let sig = sign_msg(&Vec::from(&vote));
         self.votes
             .add(self.params.node_address, &SignedFollowerVote { vote, sig })
     }
@@ -1340,7 +1340,7 @@ impl Bft {
                     let mut cp =
                         NetworkProposal::new_with_proposal(self.height, self.round, proposal);
                     cp.set_raw_proposal(raw);
-                    let sig = sign_msg(&Vec::from(&cp), self.params.key_id);
+                    let sig = sign_msg(&Vec::from(&cp));
                     sign_prop.set(cp, sig, self.params.node_address);
                     info!("New proposal proposal lock block {:?}", self);
                 } else {
@@ -1377,7 +1377,7 @@ impl Bft {
             self.proposals.add(self.height, self.round, p.clone());
             let mut cp = NetworkProposal::new_with_proposal(self.height, self.round, p);
             cp.set_raw_proposal(raw);
-            let sig = sign_msg(&Vec::from(&cp), self.params.key_id);
+            let sig = sign_msg(&Vec::from(&cp));
             sign_prop.set(cp, sig, self.params.node_address);
             info!("New proposal proposal {:?}", self);
         }
