@@ -13,6 +13,7 @@ env:
   #GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   RUSTFLAGS: -Dwarnings
   RUST_BACKTRACE: 1
+  PROTOC_NO_VENDOR: 1
 
 jobs:
   fmt:
@@ -21,6 +22,9 @@ jobs:
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     steps:
       - uses: actions/checkout@v2
+      - uses: arduino/setup-protoc@v1.1.2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
@@ -36,6 +40,9 @@ jobs:
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     steps:
       - uses: actions/checkout@v2
+      - uses: arduino/setup-protoc@v1.1.2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
@@ -51,6 +58,9 @@ jobs:
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     steps:
       - uses: actions/checkout@v2
+      - uses: arduino/setup-protoc@v1.1.2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
@@ -64,6 +74,9 @@ jobs:
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     steps:
       - uses: actions/checkout@v2
+      - uses: arduino/setup-protoc@v1.1.2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
