@@ -26,7 +26,7 @@ use clap::Parser;
 
 use crate::config::BftConfig;
 use crate::health_check::HealthCheckServer;
-use crate::util::{crypto_client, init_grpc_client};
+use crate::util::{crypto_client, init_grpc_client, CLIENT_NAME};
 use cita_cloud_proto::client::{
     ClientOptions, ControllerClientTrait, CryptoClientTrait, InterceptedSvc, NetworkClientTrait,
 };
@@ -117,7 +117,7 @@ impl BftToCtl {
         let mut interval =
             tokio::time::interval(std::time::Duration::from_secs(self.connect_interval));
         let client_options = ClientOptions::new(
-            "controller".to_string(),
+            CLIENT_NAME.to_string(),
             format!("http://127.0.0.1:{}", self.ctr_port),
         );
         info!("connecting to controller...");
@@ -175,12 +175,12 @@ impl BftToCtl {
                     self.back_bft_tx.send(msg).unwrap();
                 }
 
-                BftToCtlMsg::CommitBlock(pprwpf) => {
+                BftToCtlMsg::CommitBlock(proposal_with_proof) => {
                     info!("consensus to controller : CommitBlock");
                     let client = client.clone();
                     let back_bft_tx = self.back_bft_tx.clone();
                     task::spawn(async move {
-                        let res = client.commit_block(pprwpf).await;
+                        let res = client.commit_block(proposal_with_proof).await;
 
                         match res {
                             Ok(config) => {
@@ -230,7 +230,7 @@ impl BftToNet {
         let mut interval =
             tokio::time::interval(std::time::Duration::from_secs(self.connect_interval));
         let client_options = ClientOptions::new(
-            "controller".to_string(),
+            CLIENT_NAME.to_string(),
             format!("http://127.0.0.1:{}", self.net_port),
         );
         info!("connecting to network...");
@@ -238,7 +238,6 @@ impl BftToNet {
             interval.tick().await;
             match client_options.connect_network() {
                 Ok(retry_client) => {
-                    info!("connecting to network success");
                     return retry_client;
                 }
                 Err(e) => warn!("client init error: {:?}", &e),
@@ -249,7 +248,6 @@ impl BftToNet {
 
     async fn run(mut self) {
         let client = self.reconnect().await;
-        info!("connecting to network success");
         loop {
             let info = RegisterInfo {
                 module_name: "consensus".to_owned(),
@@ -259,6 +257,7 @@ impl BftToNet {
 
             let res = client.register_network_msg_handler(info).await.unwrap();
             if res.code == u32::from(status_code::StatusCode::Success) {
+                info!("connecting to network success");
                 break;
             }
         }
