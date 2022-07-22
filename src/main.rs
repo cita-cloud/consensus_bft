@@ -26,7 +26,10 @@ use clap::Parser;
 
 use crate::config::BftConfig;
 use crate::health_check::HealthCheckServer;
-use crate::util::{crypto_client, init_grpc_client};
+use crate::util::{crypto_client, init_grpc_client, CLIENT_NAME};
+use cita_cloud_proto::client::{
+    ClientOptions, ControllerClientTrait, CryptoClientTrait, InterceptedSvc, NetworkClientTrait,
+};
 use cita_cloud_proto::common::{
     ConsensusConfiguration, Empty, Proposal as ProtoProposal, ProposalWithProof, StatusCode,
 };
@@ -39,12 +42,12 @@ use cita_cloud_proto::network::network_msg_handler_service_server::NetworkMsgHan
 use cita_cloud_proto::network::network_msg_handler_service_server::NetworkMsgHandlerServiceServer;
 use cita_cloud_proto::network::network_service_client::NetworkServiceClient;
 use cita_cloud_proto::network::{NetworkMsg, RegisterInfo};
+use cita_cloud_proto::retry::RetryClient;
 use std::time::Duration;
-use tonic::transport::channel::Channel;
-use tonic::{transport::Server, Request};
+use tonic::transport::Server;
 
-type ControllerClient = Consensus2ControllerServiceClient<Channel>;
-type NetworkClient = NetworkServiceClient<Channel>;
+type ControllerClient = RetryClient<Consensus2ControllerServiceClient<InterceptedSvc>>;
+type NetworkClient = RetryClient<NetworkServiceClient<InterceptedSvc>>;
 
 struct BftSvr {
     to_bft_tx: mpsc::UnboundedSender<BftSvrMsg>,
@@ -113,36 +116,34 @@ impl BftToCtl {
     async fn reconnect(&self) -> ControllerClient {
         let mut interval =
             tokio::time::interval(std::time::Duration::from_secs(self.connect_interval));
-        let ctl_addr = format!("http://127.0.0.1:{}", self.ctr_port);
+        let client_options = ClientOptions::new(
+            CLIENT_NAME.to_string(),
+            format!("http://127.0.0.1:{}", self.ctr_port),
+        );
         info!("connecting to controller...");
-        let client = loop {
+        loop {
             interval.tick().await;
-            match ControllerClient::connect(ctl_addr.clone()).await {
-                Ok(client) => break client,
-                Err(e) => {
-                    debug!("connect to controller failed: `{}`", e);
+            match client_options.connect_controller() {
+                Ok(retry_client) => {
+                    info!("connecting to controller success");
+                    return retry_client;
                 }
-            }
+                Err(e) => warn!("client init error: {:?}", &e),
+            };
             debug!("Retrying to connect controller");
-        };
-        info!("connecting to controller success");
-        client
+        }
     }
 
     // Connect to the controller. Retry on failure.
     async fn run(mut self) {
-        let mut client = self.reconnect().await;
+        let client = self.reconnect().await;
         while let Some(to_msg) = self.to_ctl_rx.recv().await {
             match to_msg {
                 BftToCtlMsg::GetProposalReq => {
                     info!("consensus to controller : GetProposalReq ");
-                    let request = tonic::Request::new(Empty {});
-                    let response = client
-                        .get_proposal(request)
-                        .await
-                        .map(|resp| resp.into_inner());
+                    let res = client.get_proposal(Empty {}).await;
 
-                    if let Ok(res) = response {
+                    if let Ok(res) = res {
                         if let Some((status, proposal)) = res.status.zip(res.proposal) {
                             let msg =
                                 CtlBackBftMsg::GetProposal(status, proposal.height, proposal.data);
@@ -156,13 +157,11 @@ impl BftToCtl {
                         "consensus to controller, CheckProposalReq h: {} r: {}",
                         height, r
                     );
-                    let request = tonic::Request::new(ProtoProposal { height, data: raw });
-                    let response = client
-                        .check_proposal(request)
-                        .await
-                        .map(|resp| resp.into_inner());
+                    let result = client
+                        .check_proposal(ProtoProposal { height, data: raw })
+                        .await;
 
-                    let res = match response {
+                    let res = match result {
                         Ok(scode) => {
                             status_code::StatusCode::from(scode.code)
                                 == status_code::StatusCode::Success
@@ -176,17 +175,15 @@ impl BftToCtl {
                     self.back_bft_tx.send(msg).unwrap();
                 }
 
-                BftToCtlMsg::CommitBlock(pproff) => {
+                BftToCtlMsg::CommitBlock(proposal_with_proof) => {
                     info!("consensus to controller : CommitBlock");
-                    let mut client = client.clone();
+                    let client = client.clone();
                     let back_bft_tx = self.back_bft_tx.clone();
                     task::spawn(async move {
-                        let request = tonic::Request::new(pproff);
-                        let response = client.commit_block(request).await;
+                        let res = client.commit_block(proposal_with_proof).await;
 
-                        match response {
-                            Ok(res) => {
-                                let config = res.into_inner();
+                        match res {
+                            Ok(config) => {
                                 if let Some((status, config)) = config.status.zip(config.config) {
                                     if status_code::StatusCode::from(status.code)
                                         == status_code::StatusCode::Success
@@ -232,47 +229,48 @@ impl BftToNet {
     async fn reconnect(&self) -> NetworkClient {
         let mut interval =
             tokio::time::interval(std::time::Duration::from_secs(self.connect_interval));
-        let net_addr = format!("http://127.0.0.1:{}", self.net_port);
+        let client_options = ClientOptions::new(
+            CLIENT_NAME.to_string(),
+            format!("http://127.0.0.1:{}", self.net_port),
+        );
         info!("connecting to network...");
-        let client = loop {
+        loop {
             interval.tick().await;
-            match NetworkClient::connect(net_addr.clone()).await {
-                Ok(client) => break client,
-                Err(e) => {
-                    debug!("connect to network failed: `{}`", e);
+            match client_options.connect_network() {
+                Ok(retry_client) => {
+                    return retry_client;
                 }
-            }
+                Err(e) => warn!("client init error: {:?}", &e),
+            };
             debug!("Retrying to connect network");
-        };
-        client
+        }
     }
 
     async fn run(mut self) {
-        let mut client = self.reconnect().await;
-        info!("connecting to network success");
+        let client = self.reconnect().await;
         loop {
-            let request = Request::new(RegisterInfo {
+            let info = RegisterInfo {
                 module_name: "consensus".to_owned(),
                 hostname: "127.0.0.1".to_owned(),
                 port: self.self_port.clone(),
-            });
+            };
 
-            let response = client.register_network_msg_handler(request).await.unwrap();
-            if response.into_inner().code == u32::from(status_code::StatusCode::Success) {
+            let res = client.register_network_msg_handler(info).await.unwrap();
+            if res.code == u32::from(status_code::StatusCode::Success) {
+                info!("connecting to network success");
                 break;
             }
         }
 
         while let Some(msg) = self.to_net_rx.recv().await {
             let origin = msg.origin;
-            let request = tonic::Request::new(msg);
             if origin == 0 {
-                let resp = client.broadcast(request).await;
+                let resp = client.broadcast(msg).await;
                 if let Err(e) = resp {
                     info!("net client broadcast error {:?}", e);
                 }
             } else {
-                let resp = client.send_msg(request).await;
+                let resp = client.send_msg(msg).await;
                 if let Err(e) = resp {
                     info!("net client send_msg error {:?}", e);
                 }
@@ -366,15 +364,11 @@ async fn run(opts: RunOpts) {
         interval.tick().await;
         // register endpoint
         {
-            if let Ok(crypto_info) = crypto_client()
-                .get_crypto_info(Request::new(Empty {}))
-                .await
-            {
-                let inner = crypto_info.into_inner();
-                if inner.status.is_some() {
-                    match status_code::StatusCode::from(inner.status.unwrap()) {
+            if let Ok(crypto_info) = crypto_client().get_crypto_info(Empty {}).await {
+                if crypto_info.status.is_some() {
+                    match status_code::StatusCode::from(crypto_info.status.unwrap()) {
                         status_code::StatusCode::Success => {
-                            info!("crypto({}) is ready!", &inner.name);
+                            info!("crypto({}) is ready!", &crypto_info.name);
                             break;
                         }
                         status => warn!("get get_crypto_info failed: {:?}", status),
