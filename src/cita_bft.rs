@@ -840,18 +840,14 @@ impl Bft {
     }
 
     fn check_proposal_proof(&self, pproof: ProposalWithProof) -> bool {
-        let phash = hash_msg(&pproof.proposal.unwrap().data);
         let leader_vote: LeaderVote = deserialize(&pproof.proof).unwrap_or_default();
         info!(
             "----- check_proposal_proof phash {:?} h: {} round {}",
-            phash, leader_vote.height, leader_vote.round
+            leader_vote.hash, leader_vote.height, leader_vote.round
         );
         if !self.is_above_threshold(leader_vote.votes.len() as u64)
             && !self.is_above_threshold_old(leader_vote.votes.len() as u64)
         {
-            return false;
-        }
-        if Some(phash) != leader_vote.hash {
             return false;
         }
 
