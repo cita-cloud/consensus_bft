@@ -1907,7 +1907,9 @@ impl Bft {
                                     let _ = self.wal_log.borrow_mut().clear_file();
                                 }
                                 self.set_config(config);
-                                self.new_round_start(h + 1, INIT_ROUND);
+                                if self.deal_old_height_when_committed(h) {
+                                    self.new_round_start(h + 1, INIT_ROUND);
+                                }
                             },
                             BftSvrMsg::PProof(pproof,tx) => {
                                 let res = self.check_proposal_proof(pproof);
