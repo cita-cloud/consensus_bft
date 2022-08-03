@@ -103,7 +103,6 @@ pub struct Bft {
     // lock_round set, locked block means itself,else means proposal's block
     // locked_block: Option<Vec<u8>>,
     wal_log: RefCell<Wal>,
-    send_filter: BTreeMap<u64, Instant>,
     last_commit_round: Option<u64>,
     start_time: Duration,
     auth_manage: AuthorityManage,
@@ -168,7 +167,6 @@ impl Bft {
             proposal: None,
             self_proposal: BTreeMap::new(),
             lock_round: None,
-            send_filter: BTreeMap::new(),
             last_commit_round: None,
             start_time: unix_now(),
             auth_manage,
@@ -657,7 +655,6 @@ impl Bft {
     fn deal_old_height_when_committed(&mut self, height: u64) -> bool {
         if self.height <= height {
             self.clean_proposal_locked_info();
-            self.clean_filter_info();
             self.clean_self_proposal();
             self.clean_leader_origins();
             self.lock_round = None;
@@ -857,7 +854,7 @@ impl Bft {
 
         let mut senders = std::collections::HashSet::new();
         for sign_vote in &leader_vote.votes {
-            let sender = Self::design_message(&sign_vote.sig, &sign_vote.vote);
+            let sender = Self::recover_sender_from_sig(&sign_vote.sig, &sign_vote.vote);
 
             debug!("----- check_proposal_proof sender {:?}", sender);
             if !self.is_validator(&sender) && !self.is_validator_old(&sender) {
@@ -952,7 +949,7 @@ impl Bft {
         }
 
         for sign_vote in &lvote.votes {
-            let sender = Self::design_message(&sign_vote.sig, &sign_vote.vote);
+            let sender = Self::recover_sender_from_sig(&sign_vote.sig, &sign_vote.vote);
             if !self.is_validator(&sender) {
                 return Err(EngineError::NotAuthorized(sender));
             }
@@ -1028,28 +1025,15 @@ impl Bft {
 
         //deal with equal height,and round fall behind
         if h == self.height && r < self.round {
-            let mut trans_flag = true;
-            let now = Instant::now();
-
-            let res = self.send_filter.get(&r);
-            if let Some(instant_time) = res {
-                if now - *instant_time
-                    < self.params.timer.get_prevote()
-                        * TIMEOUT_LOW_ROUND_FEED_MULTIPLE
-                        * (self.auth_manage.validator_n() as u32 + 1)
-                {
-                    trans_flag = false;
-                }
-            }
-            if trans_flag {
-                self.send_filter.insert(r, now);
-                self.pub_newview_message(h, r);
-                info!("Pub newview for old round h: {} r: {}", h, r);
-            }
+            self.pub_newview_message(h, self.round);
+            info!(
+                "Receive newview  h: {} old round r: {}, send new round: {}",
+                h, r, self.round
+            );
             return Err(EngineError::VoteMsgDelay(h, r));
         }
 
-        let sender = Self::design_message(&fvote.sig, &fvote.vote);
+        let sender = Self::recover_sender_from_sig(&fvote.sig, &fvote.vote);
         if !self.is_validator(&sender) {
             return Err(EngineError::NotAuthorized(sender));
         }
@@ -1094,7 +1078,7 @@ impl Bft {
         if h < self.height {
             return Err(EngineError::VoteMsgDelay(h, r));
         }
-        let sender = Self::design_message(&fvote.sig, &fvote.vote);
+        let sender = Self::recover_sender_from_sig(&fvote.sig, &fvote.vote);
         if !self.is_validator(&sender) {
             return Err(EngineError::NotAuthorized(sender));
         }
@@ -1193,7 +1177,7 @@ impl Bft {
             .send(BftToCtlMsg::CheckProposalReq(height, round, raw_proposal));
     }
 
-    fn design_message<T: Into<Vec<u8>>>(sig: &[u8], msg: T) -> Address {
+    fn recover_sender_from_sig<T: Into<Vec<u8>>>(sig: &[u8], msg: T) -> Address {
         let msg: Vec<u8> = msg.into();
         Address::from_slice(&recover_sig(sig, &msg))
     }
@@ -1241,7 +1225,7 @@ impl Bft {
             return Err(EngineError::VoteMsgDelay(height, round));
         }
 
-        let sender = Self::design_message(&sign_proposal.sig, &sign_proposal.proposal);
+        let sender = Self::recover_sender_from_sig(&sign_proposal.sig, &sign_proposal.proposal);
         let ret = self.is_round_leader(height, round, &sender);
         if !ret.unwrap_or(false) {
             warn!("Handle proposal {},{:?} is not round leader ", self, sender);
@@ -1321,10 +1305,6 @@ impl Bft {
 
     fn clean_self_proposal(&mut self) {
         self.self_proposal = self.self_proposal.split_off(&self.height);
-    }
-
-    fn clean_filter_info(&mut self) {
-        self.send_filter.clear();
     }
 
     pub fn leader_new_proposal(&mut self, save_flag: bool) -> bool {
