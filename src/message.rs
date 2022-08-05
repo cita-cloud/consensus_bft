@@ -145,6 +145,7 @@ pub enum Step {
     Commit,
     CommitWait,
     NewView,
+    NewViewRes,
 }
 
 impl Default for Step {
@@ -165,6 +166,7 @@ impl From<u8> for Step {
             6 => Step::Commit,
             7 => Step::CommitWait,
             8 => Step::NewView,
+            9 => Step::NewViewRes,
             _ => panic!("Invalid step."),
         }
     }

@@ -41,7 +41,6 @@ const INIT_HEIGHT: u64 = 1;
 const INIT_ROUND: u64 = 0;
 
 const TIMEOUT_RETRANSE_MULTIPLE: u32 = 15;
-const TIMEOUT_LOW_ROUND_FEED_MULTIPLE: u32 = 23;
 
 const DEFAULT_TIME_INTERVAL: u64 = 3000;
 type NilRound = (u64, u64);
@@ -103,7 +102,6 @@ pub struct Bft {
     // lock_round set, locked block means itself,else means proposal's block
     // locked_block: Option<Vec<u8>>,
     wal_log: RefCell<Wal>,
-    send_filter: BTreeMap<u64, Instant>,
     last_commit_round: Option<u64>,
     start_time: Duration,
     auth_manage: AuthorityManage,
@@ -168,7 +166,6 @@ impl Bft {
             proposal: None,
             self_proposal: BTreeMap::new(),
             lock_round: None,
-            send_filter: BTreeMap::new(),
             last_commit_round: None,
             start_time: unix_now(),
             auth_manage,
@@ -312,22 +309,20 @@ impl Bft {
         trace!("proc newview {} vote_set: {:?}", self, vote_set);
         let vlen = vote_set.as_ref().map(|v| v.count).unwrap_or(0);
 
-        if vlen > 0 && self.is_equal_threshold(vlen) {
-            self.pub_newview_message(height, round);
-            {
-                if !self.params.issue_nil_block {
-                    // Find the honest nil round
-                    let fnum = self.get_faulty_limit_number();
-                    let mut sum = 0;
-                    for (hash, count) in vote_set.unwrap().votes_by_proposal.iter().rev() {
-                        sum += count;
-                        if sum > fnum {
-                            let nround = hash.to_low_u64_le();
-                            // Set the nil round as the majority's
-                            if self.nil_round.0 != nround {
-                                self.nil_round.0 = nround;
-                                break;
-                            }
+        if vlen > 0 && self.is_above_threshold(vlen) {
+            self.pub_newview_message(height, round, Step::NewView);
+            if !self.params.issue_nil_block {
+                // Find the honest nil round
+                let fnum = self.get_faulty_limit_number();
+                let mut sum = 0;
+                for (hash, count) in vote_set.unwrap().votes_by_proposal.iter().rev() {
+                    sum += count;
+                    if sum > fnum {
+                        let nround = hash.to_low_u64_le();
+                        // Set the nil round as the majority's
+                        if self.nil_round.0 != nround {
+                            self.nil_round.0 = nround;
+                            break;
                         }
                     }
                 }
@@ -657,7 +652,6 @@ impl Bft {
     fn deal_old_height_when_committed(&mut self, height: u64) -> bool {
         if self.height <= height {
             self.clean_proposal_locked_info();
-            self.clean_filter_info();
             self.clean_self_proposal();
             self.clean_leader_origins();
             self.lock_round = None;
@@ -728,7 +722,7 @@ impl Bft {
         false
     }
 
-    fn pub_newview_message(&mut self, height: u64, round: u64) {
+    fn pub_newview_message(&mut self, height: u64, round: u64, step: Step) {
         let hash = {
             if self.params.issue_nil_block {
                 None
@@ -737,7 +731,7 @@ impl Bft {
             }
         };
 
-        self.pub_follower_message(height, round, Step::NewView, hash);
+        self.pub_follower_message(height, round, step, hash);
     }
 
     fn pub_follower_message(&mut self, height: u64, round: u64, step: Step, hash: Option<H256>) {
@@ -764,7 +758,7 @@ impl Bft {
                         .cloned()
                         .unwrap_or(0),
                 ),
-                Step::NewView => (VoteMsgType::NewView, 0),
+                Step::NewView | Step::NewViewRes => (VoteMsgType::NewView, 0),
                 _ => (VoteMsgType::Noop, 0),
             }
         };
@@ -778,6 +772,10 @@ impl Bft {
 
         let sig = sign_msg(&Vec::from(&vote));
         let sv = SignedFollowerVote { vote, sig };
+        if step == Step::NewView {
+            self.add_self_newview_vote(&sv);
+        }
+
         self.send_raw_net_msg(net_msg_type.into(), origin, &sv);
     }
 
@@ -857,7 +855,7 @@ impl Bft {
 
         let mut senders = std::collections::HashSet::new();
         for sign_vote in &leader_vote.votes {
-            let sender = Self::design_message(&sign_vote.sig, &sign_vote.vote);
+            let sender = Self::recover_sender_from_sig(&sign_vote.sig, &sign_vote.vote);
 
             debug!("----- check_proposal_proof sender {:?}", sender);
             if !self.is_validator(&sender) && !self.is_validator_old(&sender) {
@@ -898,6 +896,10 @@ impl Bft {
         let sig = sign_msg(&Vec::from(&vote));
         self.votes
             .add(self.params.node_address, &SignedFollowerVote { vote, sig })
+    }
+
+    fn add_self_newview_vote(&mut self, newview_vote: &SignedFollowerVote) -> bool {
+        self.votes.add(self.params.node_address, newview_vote)
     }
 
     fn is_validator(&self, address: &Address) -> bool {
@@ -952,7 +954,7 @@ impl Bft {
         }
 
         for sign_vote in &lvote.votes {
-            let sender = Self::design_message(&sign_vote.sig, &sign_vote.vote);
+            let sender = Self::recover_sender_from_sig(&sign_vote.sig, &sign_vote.vote);
             if !self.is_validator(&sender) {
                 return Err(EngineError::NotAuthorized(sender));
             }
@@ -1007,49 +1009,20 @@ impl Bft {
 
         let h = fvote.vote.height;
         let r = fvote.vote.round;
+        let step = fvote.vote.step;
 
         if h < self.height {
-            // republic old height commit
-            if h + 1 == self.height && r > 0 {
-                warn!("receive unreachable new_view msg");
-                if let Some(vote_set) = self.votes.get_voteset(h, r - 1, Step::Precommit) {
-                    if self.is_above_threshold(vote_set.count) {
-                        for (hash, count) in &vote_set.votes_by_proposal {
-                            if self.is_above_threshold(*count) {
-                                warn!("handle unreachable new_view msg, resend committed proposal");
-                                self.pub_leader_message(h, r - 1, Step::Precommit, Some(*hash));
-                            }
-                        }
-                    }
-                }
-            }
             return Err(EngineError::VoteMsgDelay(h, r));
         }
 
         //deal with equal height,and round fall behind
-        if h == self.height && r < self.round {
-            let mut trans_flag = true;
-            let now = Instant::now();
-
-            let res = self.send_filter.get(&r);
-            if let Some(instant_time) = res {
-                if now - *instant_time
-                    < self.params.timer.get_prevote()
-                        * TIMEOUT_LOW_ROUND_FEED_MULTIPLE
-                        * (self.auth_manage.validator_n() as u32 + 1)
-                {
-                    trans_flag = false;
-                }
-            }
-            if trans_flag {
-                self.send_filter.insert(r, now);
-                self.pub_newview_message(h, r);
-                info!("Pub newview for old round h: {} r: {}", h, r);
-            }
+        if h == self.height && r < self.round && step == Step::NewView {
+            self.pub_newview_message(h, r, Step::NewViewRes);
+            info!("Send newviewRes  h: {} round r: {}", h, r);
             return Err(EngineError::VoteMsgDelay(h, r));
         }
 
-        let sender = Self::design_message(&fvote.sig, &fvote.vote);
+        let sender = Self::recover_sender_from_sig(&fvote.sig, &fvote.vote);
         if !self.is_validator(&sender) {
             return Err(EngineError::NotAuthorized(sender));
         }
@@ -1094,7 +1067,7 @@ impl Bft {
         if h < self.height {
             return Err(EngineError::VoteMsgDelay(h, r));
         }
-        let sender = Self::design_message(&fvote.sig, &fvote.vote);
+        let sender = Self::recover_sender_from_sig(&fvote.sig, &fvote.vote);
         if !self.is_validator(&sender) {
             return Err(EngineError::NotAuthorized(sender));
         }
@@ -1165,6 +1138,10 @@ impl Bft {
             let res = self.hash_proposals.get_mut(&proposal.phash);
             match res {
                 None => {
+                    warn!(
+                        "Proc proposal verified proposal none result {:?}",
+                        proposal.phash
+                    );
                     return false;
                 }
                 Some((_, res)) => match res {
@@ -1193,7 +1170,7 @@ impl Bft {
             .send(BftToCtlMsg::CheckProposalReq(height, round, raw_proposal));
     }
 
-    fn design_message<T: Into<Vec<u8>>>(sig: &[u8], msg: T) -> Address {
+    fn recover_sender_from_sig<T: Into<Vec<u8>>>(sig: &[u8], msg: T) -> Address {
         let msg: Vec<u8> = msg.into();
         Address::from_slice(&recover_sig(sig, &msg))
     }
@@ -1241,7 +1218,7 @@ impl Bft {
             return Err(EngineError::VoteMsgDelay(height, round));
         }
 
-        let sender = Self::design_message(&sign_proposal.sig, &sign_proposal.proposal);
+        let sender = Self::recover_sender_from_sig(&sign_proposal.sig, &sign_proposal.proposal);
         let ret = self.is_round_leader(height, round, &sender);
         if !ret.unwrap_or(false) {
             warn!("Handle proposal {},{:?} is not round leader ", self, sender);
@@ -1321,10 +1298,6 @@ impl Bft {
 
     fn clean_self_proposal(&mut self) {
         self.self_proposal = self.self_proposal.split_off(&self.height);
-    }
-
-    fn clean_filter_info(&mut self) {
-        self.send_filter.clear();
     }
 
     pub fn leader_new_proposal(&mut self, save_flag: bool) -> bool {
@@ -1418,7 +1391,7 @@ impl Bft {
             height,
             round
         );
-        self.pub_newview_message(height, round);
+        self.pub_newview_message(height, round, Step::NewView);
         self.change_state_step(height, round, Step::NewView);
         self.set_state_timeout(
             height,
@@ -1510,6 +1483,7 @@ impl Bft {
                 self.newview_timeout_vote(tminfo.height, tminfo.round);
                 self.proc_new_view(tminfo.height, tminfo.round);
             }
+            Step::NewViewRes => {}
         }
     }
 
@@ -1710,6 +1684,7 @@ impl Bft {
             Step::NewView => {
                 self.newview_timeout_vote(height, round);
             }
+            Step::NewViewRes => {}
         }
     }
 
