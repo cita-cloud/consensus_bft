@@ -105,7 +105,12 @@ impl StepCollector {
     }
 
     pub fn add(&mut self, sender: Address, sign_vote: &SignedFollowerVote) -> bool {
-        let step = sign_vote.vote.step;
+        // change Step::NewViewRes -> Step::NewView
+        let step = if sign_vote.vote.step == Step::NewViewRes {
+            Step::NewView
+        } else {
+            sign_vote.vote.step
+        };
         self.step_votes
             .entry(step)
             .or_insert_with(VoteSet::new)
