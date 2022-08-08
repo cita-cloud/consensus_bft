@@ -1794,7 +1794,14 @@ impl Bft {
             let height = self.height;
             let round = self.round;
             info!("the leader is me, h: {} r: {}", height, round);
-            self.step = Step::PrevoteWait;
+            self.change_state_step(height, round, Step::PrevoteWait);
+
+            self.set_state_timeout(
+                height,
+                round,
+                Step::PrevoteWait,
+                self.proposal_interval_round_multiple(round),
+            );
             // The code is for only one Node
             if self.is_only_one_node() {
                 info!(
