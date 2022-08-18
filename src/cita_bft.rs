@@ -1903,13 +1903,14 @@ impl Bft {
     pub async fn start(&mut self) {
         self.load_wal_log();
         // TODO : broadcast some message, based on current state
-        let mut interval = if self.height >= INIT_HEIGHT {
+        let init_timeout = if self.height >= INIT_HEIGHT {
             //self.send_proof_request();
             self.redo_work();
-            tokio::time::interval(Duration::from_secs(0xdeadbeef))
+            tokio::time::sleep(Duration::from_secs(0xdeadbeef))
         } else {
-            tokio::time::interval(Duration::from_secs(self.params.server_retry_interval))
+            tokio::time::sleep(Duration::from_secs(self.params.server_retry_interval))
         };
+        tokio::pin!(init_timeout);
 
         loop {
             tokio::select! {
@@ -2008,9 +2009,17 @@ impl Bft {
                         self.timeout_process(&tminfo);
                     }
                 }
-                _ = interval.tick() => {
+                _ = &mut init_timeout => {
                     if self.height == 0 {
                         self.ping_controller();
+                        init_timeout
+                            .as_mut()
+                            .reset(tokio::time::Instant::now() +
+                                Duration::from_secs(self.params.server_retry_interval))
+                    } else {
+                        init_timeout
+                            .as_mut()
+                            .reset(tokio::time::Instant::now() + Duration::from_secs(0xdeadbeef))
                     }
                 }
             }
