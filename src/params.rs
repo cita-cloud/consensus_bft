@@ -83,6 +83,7 @@ pub struct BftParams {
     pub wal_path: String,
     pub authority_path: String,
     pub max_proposal_time_coef: u64,
+    pub server_retry_interval: u64,
 }
 
 impl BftParams {
@@ -94,6 +95,7 @@ impl BftParams {
             wal_path: config.wal_path.clone(),
             authority_path: config.authority_path.clone(),
             max_proposal_time_coef: config.max_proposal_time_coef,
+            server_retry_interval: config.server_retry_interval,
         }
     }
 

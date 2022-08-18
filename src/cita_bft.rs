@@ -83,6 +83,7 @@ pub struct BftChannls {
 
     pub timer_back_rx: mpsc::UnboundedReceiver<TimeoutInfo>,
 }
+
 pub struct Bft {
     params: BftParams,
     height: u64,
@@ -658,10 +659,20 @@ impl Bft {
             self.last_commit_round = None;
 
             self.nil_round = (INIT_ROUND, INIT_ROUND);
-            return true;
+            true
+        } else {
+            warn!("deal_old_height_when_committed {} h: {} ", self, height);
+            false
         }
-        warn!("deal_old_height_when_committed {} h: {} ", self, height);
-        false
+    }
+
+    fn clear_states(&mut self) {
+        self.clean_proposal_locked_info();
+        self.clean_self_proposal();
+        self.clean_leader_origins();
+        self.lock_round = None;
+        self.last_commit_round = None;
+        self.nil_round = (INIT_ROUND, INIT_ROUND);
     }
 
     fn generate_proof(&mut self, height: u64, round: u64, hash: H256) -> Option<Vec<u8>> {
@@ -720,6 +731,22 @@ impl Bft {
         //     }
         // }
         false
+    }
+
+    // send u64::max commit_block for check controller finish initial process
+    fn ping_controller(&self) {
+        info!("ping_controller: active sending commit_block");
+        let pproof = ProposalWithProof {
+            proposal: Some(ProtoProposal {
+                height: u64::MAX,
+                data: vec![],
+            }),
+            proof: vec![],
+        };
+        self.bft_channels
+            .to_ctl_tx
+            .send(BftToCtlMsg::CommitBlock(pproof))
+            .unwrap();
     }
 
     fn pub_newview_message(&mut self, height: u64, round: u64, step: Step) {
@@ -1876,10 +1903,13 @@ impl Bft {
     pub async fn start(&mut self) {
         self.load_wal_log();
         // TODO : broadcast some message, based on current state
-        if self.height >= INIT_HEIGHT {
+        let mut interval = if self.height >= INIT_HEIGHT {
             //self.send_proof_request();
             self.redo_work();
-        }
+            tokio::time::interval(Duration::from_secs(0xdeadbeef))
+        } else {
+            tokio::time::interval(Duration::from_secs(self.params.server_retry_interval))
+        };
 
         loop {
             tokio::select! {
@@ -1888,13 +1918,16 @@ impl Bft {
                         match svrmsg {
                             BftSvrMsg::Conf(config) => {
                                 let h = config.height;
-                                info!("recv to BftSvrMsg::Conf height: {}", h);
-                                if h + 1 < self.height {
-                                    let _ = self.wal_log.borrow_mut().clear_file();
-                                }
                                 self.set_config(config);
-                                if self.deal_old_height_when_committed(h) {
+                                info!("recv to BftSvrMsg::Conf height: {}", h);
+                                if h + 1 != self.height {
+                                    if h + 1 < self.height {
+                                        let _ = self.wal_log.borrow_mut().clear_file();
+                                    }
+                                    self.clear_states();
                                     self.new_round_start(h + 1, INIT_ROUND);
+                                } else {
+                                    warn!("recv to BftSvrMsg::Conf height: {} re-enter", h);
                                 }
                             },
                             BftSvrMsg::PProof(pproof,tx) => {
@@ -1973,6 +2006,11 @@ impl Bft {
                     //info!("recv to timer back msg {:?}",tminfo);
                     if let Some(tminfo) = tminfo {
                         self.timeout_process(&tminfo);
+                    }
+                }
+                _ = interval.tick() => {
+                    if self.height == 0 {
+                        self.ping_controller();
                     }
                 }
             }
