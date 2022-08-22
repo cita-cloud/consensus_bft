@@ -346,6 +346,8 @@ async fn run(opts: RunOpts) {
     ::std::env::set_var("DATA_PATH", "./data");
     ::std::env::set_var("WAL_PATH", "./data/wal");
 
+    tokio::spawn(cloud_util::signal::handle_signals());
+
     // read consensus-config.toml
     let config = BftConfig::new(&opts.config_path);
 
