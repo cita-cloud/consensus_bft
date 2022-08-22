@@ -35,7 +35,7 @@ pub enum CtlBackBftMsg {
     CommitBlock(ConsensusConfiguration),
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Clone, Default)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Default)]
 pub struct Vote {
     pub sender: Vec<u8>,
     pub proposal: Vec<u8>,
