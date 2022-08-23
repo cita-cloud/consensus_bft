@@ -10,7 +10,7 @@ docker build -t citacloud/consensus_bft .
 
 ```
 $ consensus -h       
-consensus 6.4.0
+consensus 6.6.0
 Rivtower Technologies <contact@rivtower.com>
 This doc string acts as a help message when the user runs '--help' as do all doc strings on fields
 

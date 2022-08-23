@@ -51,6 +51,12 @@ pub struct BftConfig {
     pub authority_path: String,
 
     pub max_proposal_time_coef: u64,
+
+    pub enable_metrics: bool,
+
+    pub metrics_port: u16,
+
+    pub metrics_buckets: Vec<f64>,
 }
 
 impl Default for BftConfig {
@@ -73,6 +79,11 @@ impl Default for BftConfig {
             wal_path: "./data/wal".to_string(),
             authority_path: "./data/authorities".to_string(),
             max_proposal_time_coef: 8,
+            enable_metrics: true,
+            metrics_port: 60001,
+            metrics_buckets: vec![
+                0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0,
+            ],
         }
     }
 }

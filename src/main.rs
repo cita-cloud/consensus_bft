@@ -43,6 +43,7 @@ use cita_cloud_proto::network::network_msg_handler_service_server::NetworkMsgHan
 use cita_cloud_proto::network::network_service_client::NetworkServiceClient;
 use cita_cloud_proto::network::{NetworkMsg, RegisterInfo};
 use cita_cloud_proto::retry::RetryClient;
+use cloud_util::metrics::{run_metrics_exporter, MiddlewareLayer};
 use std::time::Duration;
 use tonic::transport::Server;
 
@@ -352,10 +353,13 @@ async fn run(opts: RunOpts) {
     log4rs::init_file(&opts.log_file, Default::default())
         .map_err(|e| println!("log init err: {}", e))
         .unwrap();
-    info!("start consensus bft");
 
     let grpc_port = config.consensus_port.to_string();
-    info!("grpc port of this service: {}", &grpc_port);
+
+    info!("grpc port of consensus_bft: {}", &grpc_port);
+
+    let addr_str = format!("127.0.0.1:{}", &grpc_port);
+    let addr = addr_str.parse().unwrap();
 
     init_grpc_client(&config);
 
@@ -434,15 +438,39 @@ async fn run(opts: RunOpts) {
         bft.start().await;
     });
 
-    let addr_str = format!("127.0.0.1:{}", &grpc_port);
-    let addr = addr_str.parse().unwrap();
+    let layer = if config.enable_metrics {
+        tokio::spawn(async move {
+            run_metrics_exporter(config.metrics_port).await.unwrap();
+        });
 
-    let _ = Server::builder()
-        .add_service(ConsensusServiceServer::new(bft_svr))
-        .add_service(NetworkMsgHandlerServiceServer::new(n2b))
-        .add_service(HealthServer::new(HealthCheckServer {}))
-        .serve(addr)
-        .await;
+        Some(
+            tower::ServiceBuilder::new()
+                .layer(MiddlewareLayer::new(config.metrics_buckets))
+                .into_inner(),
+        )
+    } else {
+        None
+    };
+
+    info!("start consensus_bft grpc server");
+    let _ = if layer.is_some() {
+        info!("metrics on");
+        Server::builder()
+            .layer(layer.unwrap())
+            .add_service(ConsensusServiceServer::new(bft_svr))
+            .add_service(NetworkMsgHandlerServiceServer::new(n2b))
+            .add_service(HealthServer::new(HealthCheckServer {}))
+            .serve(addr)
+            .await
+    } else {
+        info!("metrics off");
+        Server::builder()
+            .add_service(ConsensusServiceServer::new(bft_svr))
+            .add_service(NetworkMsgHandlerServiceServer::new(n2b))
+            .add_service(HealthServer::new(HealthCheckServer {}))
+            .serve(addr)
+            .await
+    };
 }
 
 fn main() {
