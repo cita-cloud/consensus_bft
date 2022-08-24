@@ -65,7 +65,7 @@ impl ConsensusService for BftSvr {
     async fn reconfigure(
         &self,
         request: tonic::Request<ConsensusConfiguration>,
-    ) -> std::result::Result<tonic::Response<StatusCode>, tonic::Status> {
+    ) -> Result<tonic::Response<StatusCode>, tonic::Status> {
         let config = request.into_inner();
         self.to_bft_tx.send(BftSvrMsg::Conf(config)).unwrap();
         let reply = StatusCode {
@@ -77,7 +77,7 @@ impl ConsensusService for BftSvr {
     async fn check_block(
         &self,
         request: tonic::Request<ProposalWithProof>,
-    ) -> std::result::Result<tonic::Response<StatusCode>, tonic::Status> {
+    ) -> Result<tonic::Response<StatusCode>, tonic::Status> {
         let pp = request.into_inner();
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.to_bft_tx.send(BftSvrMsg::PProof(pp, tx)).unwrap();
