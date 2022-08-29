@@ -13,19 +13,23 @@
 // limitations under the License.
 
 use crate::message::{SignedFollowerVote, Step};
-use crate::types::{Address, H256};
-
-use serde::{Deserialize, Serialize};
-
 use crate::util::recover_sig;
+use cita_types::{Address, H256};
 use log::trace;
 use lru_cache::LruCache;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 // height -> round collector
 #[derive(Debug)]
 pub struct VoteCollector {
     pub votes: LruCache<u64, RoundCollector>,
+}
+
+impl Default for VoteCollector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl VoteCollector {
@@ -58,6 +62,12 @@ impl VoteCollector {
 #[derive(Debug)]
 pub struct RoundCollector {
     pub round_votes: LruCache<u64, StepCollector>,
+}
+
+impl Default for RoundCollector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RoundCollector {
@@ -95,6 +105,12 @@ impl RoundCollector {
 #[derive(Debug)]
 pub struct StepCollector {
     pub step_votes: BTreeMap<Step, VoteSet>,
+}
+
+impl Default for StepCollector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl StepCollector {
@@ -199,6 +215,12 @@ pub struct ProposalCollector {
     pub proposals: LruCache<u64, ProposalRoundCollector>,
 }
 
+impl Default for ProposalCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProposalCollector {
     pub fn new() -> Self {
         ProposalCollector {
@@ -230,6 +252,12 @@ impl ProposalCollector {
 #[derive(Debug)]
 pub struct ProposalRoundCollector {
     pub round_proposals: LruCache<u64, Proposal>,
+}
+
+impl Default for ProposalRoundCollector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProposalRoundCollector {

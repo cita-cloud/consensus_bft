@@ -1,8 +1,7 @@
-use crate::types::H256;
 use crate::util::hash_msg;
 use crate::voteset::Proposal;
 use cita_cloud_proto::common::{ConsensusConfiguration, ProposalWithProof, StatusCode};
-use cita_types::Address;
+use cita_types::{Address, H256};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
