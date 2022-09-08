@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fs;
+
 use cloud_util::common::read_toml;
 use serde_derive::Deserialize;
 
@@ -90,7 +92,10 @@ impl Default for BftConfig {
 
 impl BftConfig {
     pub fn new(config_str: &str) -> Self {
-        read_toml(config_str, "consensus_bft")
+        let mut config: BftConfig = read_toml(config_str, "consensus_bft");
+        let node_address_path = config.node_address.clone();
+        config.node_address = fs::read_to_string(node_address_path).unwrap();
+        config
     }
 }
 
@@ -109,7 +114,7 @@ mod tests {
         assert_eq!(config.controller_port, 50004);
         assert_eq!(
             config.node_address,
-            "0x37d1c7449bfe76fe9c445e626da06265e9377601".to_string()
+            "c356876e7f4831476f99ea0593b0cd7a6053e4d3".to_string()
         );
     }
 }
