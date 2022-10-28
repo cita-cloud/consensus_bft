@@ -1,6 +1,6 @@
 [package]
 name = "consensus"
-version = "6.6.0"
+version = "6.6.2"
 authors = ["Rivtower Technologies <contact@rivtower.com>"]
 license = "Apache-2.0"
 edition = "2021"
@@ -10,19 +10,19 @@ serde = "1.0"
 serde_derive = "1.0"
 bincode = "1.3"
 log = "0.4"
-log4rs = { version = "1.0", features = ["gzip"] }
+log4rs = { version = "1.2", features = ["gzip"] }
 cita-types = "0.1"
 time = "0.3"
 lru-cache = "0.1"
-min-max-heap = "1.2"
+min-max-heap = "1.3"
 hex = "0.4"
-tonic = "0.7"
-prost = "0.10"
-tokio = { version = "1.17", features = ["full"] }
+tonic = "0.8"
+prost = "0.11"
+tokio = { version = "1.21", features = ["full"] }
 toml = "0.5"
-clap = { version = "3.1", features = ["derive"] }
+clap = { version = "4.0", features = ["derive"] }
 backtrace = "0.3"
-tower = "0.4.13"
+tower = "0.4"
 
 cloud-util = { git = "https://github.com/cita-cloud/cloud-util.git" }
 cita_cloud_proto = { git = "https://github.com/cita-cloud/cita_cloud_proto.git" }
