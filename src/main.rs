@@ -70,18 +70,21 @@ impl ConsensusService for BftSvr {
 
     async fn check_block(
         &self,
-        request: tonic::Request<ProposalWithProof>,
+        _request: tonic::Request<ProposalWithProof>,
     ) -> std::result::Result<tonic::Response<StatusCode>, tonic::Status> {
-        let pp = request.into_inner();
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        self.to_bft_tx.send(BftSvrMsg::PProof(pp, tx)).unwrap();
-        let res = rx.await.unwrap();
-        let code = if res {
-            status_code::StatusCode::Success.into()
-        } else {
-            status_code::StatusCode::ProposalCheckError.into()
-        };
-        Ok(tonic::Response::new(StatusCode { code }))
+        // let pp = request.into_inner();
+        // let (tx, rx) = tokio::sync::oneshot::channel();
+        // self.to_bft_tx.send(BftSvrMsg::PProof(pp, tx)).unwrap();
+        // let res = rx.await.unwrap();
+        // let code = if res {
+        //     status_code::StatusCode::Success.into()
+        // } else {
+        //     status_code::StatusCode::ProposalCheckError.into()
+        // };
+        // Ok(tonic::Response::new(StatusCode { code }))
+        Ok(tonic::Response::new(StatusCode {
+            code: status_code::StatusCode::Success.into(),
+        }))
     }
 }
 
@@ -232,7 +235,7 @@ impl BftToNet {
             tokio::time::interval(std::time::Duration::from_secs(self.connect_interval));
         let net_addr = format!("http://127.0.0.1:{}", self.net_port);
         info!("connecting to network...");
-        let client = loop {
+        loop {
             interval.tick().await;
             match NetworkClient::connect(net_addr.clone()).await {
                 Ok(client) => break client,
@@ -241,8 +244,7 @@ impl BftToNet {
                 }
             }
             debug!("Retrying to connect network");
-        };
-        client
+        }
     }
 
     async fn run(mut self) {

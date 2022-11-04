@@ -16,6 +16,7 @@ macro_rules! impl_from {
     };
 }
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum BftSvrMsg {
     Conf(ConsensusConfiguration),
     PProof(ProposalWithProof, oneshot::Sender<bool>),
@@ -35,7 +36,7 @@ pub enum CtlBackBftMsg {
     CommitBlock(ConsensusConfiguration),
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Clone, Default)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Default)]
 pub struct Vote {
     pub sender: Vec<u8>,
     pub proposal: Vec<u8>,
