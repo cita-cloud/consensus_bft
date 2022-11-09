@@ -24,9 +24,9 @@ clap = { version = "4.0", features = ["derive"] }
 backtrace = "0.3"
 tower = "0.4"
 
-cloud-util = { git = "https://github.com/cita-cloud/cloud-util.git" }
-cita_cloud_proto = { git = "https://github.com/cita-cloud/cita_cloud_proto.git" }
-status_code = { package = "cloud-code", git = "https://github.com/cita-cloud/status_code.git" }
+cloud-util = { git = "https://github.com/cita-cloud/cloud-util.git", branch = "v0.6.0" }
+cita_cloud_proto = { git = "https://github.com/cita-cloud/cita_cloud_proto.git", branch = "v6.6.2" }
+status_code = { package = "cloud-code", git = "https://github.com/cita-cloud/status_code.git", branch = "v0.6.0" }
 
 [profile.release.package."*"]
 # Set the default for dependencies.
