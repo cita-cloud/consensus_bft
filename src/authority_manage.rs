@@ -29,7 +29,7 @@ pub(crate) struct Wal {
 
 impl Wal {
     pub(crate) fn create(dir: &str) -> Result<Wal, io::Error> {
-        let fss = read_dir(&dir);
+        let fss = read_dir(dir);
         if fss.is_err() {
             DirBuilder::new().recursive(true).create(dir).unwrap();
         }
@@ -117,7 +117,7 @@ impl AuthorityManage {
         let mut authority_manage = AuthorityManage {
             authorities: Vec::new(),
             validators: Vec::new(),
-            authorities_log: Wal::create(&*logpath).unwrap(),
+            authorities_log: Wal::create(&logpath).unwrap(),
             authorities_old: Vec::new(),
             validators_old: Vec::new(),
             authority_h_old: 0,
@@ -154,10 +154,8 @@ impl AuthorityManage {
     ) {
         let flag = if self.validators != validators {
             2
-        } else if self.authorities != authorities {
-            1
         } else {
-            0
+            i32::from(self.authorities != authorities)
         };
 
         if flag > 0 {
