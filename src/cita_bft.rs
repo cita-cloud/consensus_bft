@@ -27,6 +27,7 @@ use cita_cloud_proto::common::{
     ConsensusConfiguration, Proposal as ProtoProposal, ProposalWithProof,
 };
 use cita_cloud_proto::network::NetworkMsg;
+use cita_cloud_proto::status_code::StatusCodeEnum;
 use cloud_util::wal::{LogType, Wal};
 use log::{debug, error, info, trace, warn};
 
@@ -1944,7 +1945,7 @@ impl Bft {
                         match cback {
                             CtlBackBftMsg::GetProposal(scode,height,proposal) => {
                                 info!("recv from controller, GetProposalRes height {:?}", height);
-                                if scode.code == u32::from(status_code::StatusCode::NoneProposal)
+                                if scode.code == (StatusCodeEnum::NoneProposal as u32)
                                     && !self.params.issue_nil_block {
                                     self.recv_new_height_proposal(height, Vec::new());
                                 } else {

@@ -10,6 +10,7 @@ mod util;
 mod voteset;
 mod votetime;
 
+use cita_cloud_proto::status_code::StatusCodeEnum;
 use cita_types as types;
 
 use message::{BftSvrMsg, BftToCtlMsg, CtlBackBftMsg};
@@ -69,7 +70,7 @@ impl ConsensusService for BftSvr {
         let config = request.into_inner();
         self.to_bft_tx.send(BftSvrMsg::Conf(config)).unwrap();
         let reply = StatusCode {
-            code: status_code::StatusCode::Success.into(),
+            code: StatusCodeEnum::Success as u32,
         };
         Ok(tonic::Response::new(reply))
     }
@@ -83,9 +84,9 @@ impl ConsensusService for BftSvr {
         self.to_bft_tx.send(BftSvrMsg::PProof(pp, tx)).unwrap();
         let res = rx.await.unwrap();
         let code = if res {
-            status_code::StatusCode::Success.into()
+            StatusCodeEnum::Success as u32
         } else {
-            status_code::StatusCode::ProposalCheckError.into()
+            StatusCodeEnum::ProposalCheckError as u32
         };
         Ok(tonic::Response::new(StatusCode { code }))
     }
@@ -163,10 +164,7 @@ impl BftToCtl {
                         .await;
 
                     let res = match result {
-                        Ok(scode) => {
-                            status_code::StatusCode::from(scode.code)
-                                == status_code::StatusCode::Success
-                        }
+                        Ok(scode) => StatusCodeEnum::from(scode.code) == StatusCodeEnum::Success,
                         Err(status) => {
                             warn!("CheckProposalReq failed: {:?}", status);
                             false
@@ -186,8 +184,7 @@ impl BftToCtl {
                         match res {
                             Ok(config) => {
                                 if let Some((status, config)) = config.status.zip(config.config) {
-                                    if status_code::StatusCode::from(status.code)
-                                        == status_code::StatusCode::Success
+                                    if StatusCodeEnum::from(status.code) == StatusCodeEnum::Success
                                     {
                                         back_bft_tx
                                             .send(CtlBackBftMsg::CommitBlock(config))
@@ -257,7 +254,7 @@ impl BftToNet {
             };
 
             let res = client.register_network_msg_handler(info).await.unwrap();
-            if res.code == u32::from(status_code::StatusCode::Success) {
+            if res.code == (StatusCodeEnum::Success as u32) {
                 info!("connecting to network success");
                 break;
             }
@@ -306,7 +303,7 @@ impl NetworkMsgHandlerService for NetToBft {
             );
             self.to_bft_tx.send(msg).unwrap();
             let reply = StatusCode {
-                code: status_code::StatusCode::Success.into(),
+                code: StatusCodeEnum::Success as u32,
             };
             Ok(tonic::Response::new(reply))
         }
@@ -372,8 +369,8 @@ async fn run(opts: RunOpts) {
         {
             if let Ok(crypto_info) = crypto_client().get_crypto_info(Empty {}).await {
                 if crypto_info.status.is_some() {
-                    match status_code::StatusCode::from(crypto_info.status.unwrap()) {
-                        status_code::StatusCode::Success => {
+                    match StatusCodeEnum::from(crypto_info.status.unwrap()) {
+                        StatusCodeEnum::Success => {
                             info!("crypto({}) is ready!", &crypto_info.name);
                             break;
                         }
