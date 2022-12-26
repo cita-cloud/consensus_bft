@@ -270,7 +270,7 @@ impl Bft {
     fn check_vote_over_period(&self, height: u64, round: u64, check_step: Step) -> bool {
         // When round > self.round pass
         if height < self.height
-            || (height == self.height && round < self.round)
+            || (height == self.height && (round < self.round || check_step == Step::PrecommitWait))
             || (height == self.height
                 && self.round == round
                 && (self.step != Step::NewView && self.step > check_step))
@@ -640,7 +640,7 @@ impl Bft {
     }
 
     fn check_and_commit_work(&mut self, height: u64, round: u64) -> bool {
-        if self.height == height && self.round == round {
+        if self.height == height {
             if let Some(commit_round) = self.last_commit_round {
                 if commit_round == round && self.proposal.is_some() {
                     return self.commit_block(height, round);
@@ -755,7 +755,7 @@ impl Bft {
             if self.params.issue_nil_block {
                 None
             } else {
-                Some(H256::from_low_u64_le(self.nil_round.0 as u64))
+                Some(H256::from_low_u64_le(self.nil_round.0))
             }
         };
 
