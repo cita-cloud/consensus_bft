@@ -755,7 +755,7 @@ impl Bft {
             if self.params.issue_nil_block {
                 None
             } else {
-                Some(H256::from_low_u64_le(self.nil_round.0 as u64))
+                Some(H256::from_low_u64_le(self.nil_round.0))
             }
         };
 
