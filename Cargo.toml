@@ -24,8 +24,8 @@ clap = { version = "4.0", features = ["derive"] }
 backtrace = "0.3"
 tower = "0.4"
 
-cloud-util = "0.6.0"
-cita_cloud_proto = "6.6.3"
+cloud-util = "=0.6.0"
+cita_cloud_proto = "=6.6.3"
 
 [profile.release.package."*"]
 # Set the default for dependencies.
