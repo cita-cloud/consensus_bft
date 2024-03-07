@@ -1881,8 +1881,12 @@ impl Bft {
     }
 
     fn set_config(&mut self, config: ConsensusConfiguration) {
-        self.params
-            .set_total_duration((config.block_interval * 1000) as u64);
+        let block_interval = if config.block_interval <= 60 {
+            config.block_interval * 1000
+        } else {
+            config.block_interval
+        };
+        self.params.set_total_duration(block_interval as u64);
         let mut validators = Vec::new();
         const ALEN: usize = Address::len_bytes();
         for v in config.validators {
